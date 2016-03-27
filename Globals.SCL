@@ -1,0 +1,67 @@
+DATA_BLOCK Data
+STRUCT
+    buffer : ARRAY[0..127] OF BYTE;
+    nextMsgId : INT;
+
+    reqSend : BOOL;
+    sendSize : INT;
+    tcpSendBuf : ARRAY[0..127] OF BYTE;
+    
+    tcpRecBuf : ARRAY[0..127] OF BYTE;
+    pRec : INT;
+    pRead : INT;
+
+    _state : INT := -1;
+    packet_state : INT;
+
+    pingOutstanding : BOOL;
+    lastInActivity : TIME;
+    lastOutActivity : TIME;
+    runTime : TIME;
+END_STRUCT
+BEGIN
+END_DATA_BLOCK
+(**************************************************************)
+
+DATA_BLOCK Globals
+STRUCT
+    MQTT_KEEPALIVE    : TIME := T#15s;
+    MQTT_SOCKET_TIMEOUT : TIME := T#15s;
+
+    // States
+    MQTT_CONNECTION_TIMEOUT		: INT :=   -4;
+    MQTT_CONNECTION_LOST		: INT :=   -3;
+    MQTT_CONNECT_FAILED			: INT :=    -2;
+    MQTT_DISCONNECTED 			: INT :=    -1;
+    MQTT_CONNECTING             : INT :=       0;
+    MQTT_CONNECTED 				: INT :=     1;
+    MQTT_CONN_BAD_PROTOCOL		: INT := 2;
+    MQTT_CONN_BAD_CLIENT_ID		: INT := 3;
+    MQTT_CONN_UNAVAILABLE		: INT := 4;
+    MQTT_CONN_BAD_CREDEN		: INT := 5;
+    MQTT_CONN_UNAUTHORIZED		: INT := 6;
+
+    // Packet headers
+    MQTTCONNECT 		: INT := 16;
+    MQTTCONNACK			: INT := 32;
+    MQTTPUBLISH        	: INT := 48;
+    MQTTPUBACK        	: INT := 64;
+    MQTTPUBREC        	: INT := 80;
+    MQTTPUBREL        	: INT := 96;
+    MQTTPUBCOMP        	: INT := 112;
+    MQTTSUBSCRIBE     	: INT := 130;
+    MQTTSUBACK         	: INT := 144;
+    MQTTUNSUBSCRIBE 	: INT := 160;
+    MQTTUNSUBACK    	: INT := 176;
+    MQTTPINGREQ        	: INT := 192;
+    MQTTPINGRESP    	: INT := 208;
+    MQTTDISCONNECT    	: INT := 224;
+    MQTTReserved    	: INT := 240;
+
+    MQTTQOS0	: INT := 0;
+    MQTTQOS1    : INT := 2;
+    MQTTQOS2 	: INT := 4;
+END_STRUCT
+BEGIN
+END_DATA_BLOCK
+(**************************************************************)

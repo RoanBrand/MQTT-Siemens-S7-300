@@ -1,0 +1,157 @@
+FUNCTION available : BOOL
+BEGIN
+available := (Data.pRead < Data.pRec);
+END_FUNCTION
+(**************************************************************)
+
+FUNCTION readByte : BYTE
+BEGIN
+readByte := Data.tcpRecBuf[Data.pRead];
+Data.pRead := Data.pRead + 1;
+END_FUNCTION
+(**************************************************************)
+
+FUNCTION readByteToBuf : INT
+VAR_INPUT
+    pos : INT;
+END_VAR
+VAR_TEMP
+    cur_index : INT;
+    readed : BYTE;
+END_VAR
+BEGIN
+cur_index := pos;
+readed := readByte();
+Data.buffer[cur_index] := readed;
+cur_index := cur_index + 1;
+readByteToBuf := cur_index;
+END_FUNCTION
+(**************************************************************)
+
+FUNCTION_BLOCK readPacket
+VAR_IN_OUT
+    iBegin : BOOL;
+    lengthLength : INT;
+END_VAR
+VAR
+    _len : INT;
+    isPublish : BOOL;
+    multiplier : DINT;
+    length : DINT;
+    digit : BYTE;
+    skip : INT;
+    start : INT;
+
+    State : INT;
+    oldState : INT;
+
+    previousTime : TIME;
+END_VAR
+VAR_OUTPUT
+    xDone : BOOL;
+    result : INT;
+END_VAR
+BEGIN
+CASE (State) OF
+    -1: // Alternative to original blocking call
+        IF ((Data.runTime - previousTime) >= Globals.MQTT_SOCKET_TIMEOUT) THEN
+            xDone := true;
+            result := 0;
+            State := 0;
+            m46.5 := true;
+        ELSIF available() THEN
+            State := oldState;
+        END_IF;
+    0 : // Wait for Start
+        oldState := 0;
+        IF (iBegin) THEN
+            iBegin := false;
+            xDone := false;
+            _len := 0;
+            State := 1;
+        END_IF;
+    1 :    // Getting first byte
+        oldState := 1;
+        IF available() THEN
+            _len := readByteToBuf(pos := _len);
+            isPublish := BYTE_TO_INT(Data.buffer[0] AND B#16#F0) = Globals.MQTTPUBLISH;
+            multiplier := 1;
+            length := 0;
+            digit := B#16#00;
+            skip := 0;
+            start := 0;
+            State := 2;
+        ELSE
+            previousTime := Data.runTime;
+            State := -1;
+        END_IF;
+    2 : // do..while((digit & 128) != 0) loop equivalent
+        oldState := 2;
+        IF available() THEN
+            digit := readByte();
+            Data.buffer[_len] := digit;
+            _len := _len + 1;
+            length := length + (BYTE_TO_DINT(digit AND B#16#7F) * multiplier);
+            multiplier := multiplier * 128;
+            IF (BYTE_TO_INT(digit AND B#16#80) = 0) THEN
+                lengthLength := _len - 1;
+                IF (isPublish) THEN
+                    State := 3;
+                ELSE
+                    State := 5;
+                END_IF;
+            END_IF;
+        ELSE
+            previousTime := Data.runTime;
+            State := -1;
+        END_IF;
+    3 :    // First Publish Byte
+        oldState := 3;
+        IF available() THEN
+            _len := readByteToBuf(pos := _len);
+            State := 4;
+        ELSE
+            previousTime := Data.runTime;
+            State := -1;
+        END_IF;
+    4 :    // Second Publish Byte
+        oldState := 4;
+        IF available() THEN
+            _len := readByteToBuf(pos := _len);
+            skip := WORD_TO_INT(SHL(IN := BYTE_TO_WORD(Data.buffer[lengthLength+1]), N := 8)) + WORD_TO_INT(Data.buffer[lengthLength+2]);
+            start := 2;
+            IF BYTE_TO_INT(Data.buffer[0] AND INT_TO_BYTE(Globals.MQTTQOS1)) > 0 THEN
+                skip := skip + 2;
+            END_IF;
+            State := 5;
+        ELSE
+            previousTime := Data.runTime;
+            State := -1;
+        END_IF;
+    5 :    // Read rest of Packet (for loop replacement)
+        oldState := 5;
+        //loop exit
+        IF (Start = length) THEN
+            IF (_len > 128) THEN
+                _len := 0; // just drop packet if too long
+            END_IF;
+            xDone := true;
+            result := _len;
+            Data.pRec := 0;
+            Data.pRead := 0;
+            State := 0;
+        ELSIF available() THEN
+            digit := readByte();
+            IF (_len < 128) THEN
+                Data.buffer[_len] := digit;
+            END_IF;
+            _len := _len + 1;
+            //loop
+            start := start + 1;
+        ELSE
+            previousTime := Data.runTime;
+            State := -1;
+        END_IF;
+END_CASE;
+END_FUNCTION_BLOCK
+(**************************************************************)

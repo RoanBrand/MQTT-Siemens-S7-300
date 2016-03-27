@@ -1,0 +1,82 @@
+FUNCTION sendTCP : VOID
+VAR_INPUT
+    offset : INT;
+    size : INT;
+END_VAR
+VAR_TEMP
+    i : INT;
+END_VAR
+BEGIN
+FOR i := 0 TO size-1 DO
+    Data.tcpSendBuf[i] := Data.buffer[offset+i];
+END_FOR;
+Data.sendSize := size;
+Data.reqSend := true;
+END_FUNCTION
+(**************************************************************)
+
+FUNCTION write : VOID
+VAR_INPUT
+    header : BYTE;
+    length : INT;
+END_VAR
+VAR_TEMP
+    lenBuf : ARRAY[0..3] OF BYTE;
+    llen : INT;
+    digit : BYTE;
+    digit_bitview at digit : ARRAY[0..7] of BOOL;
+    pos : INT;
+    rc : INT;
+    _len : INT;
+    i : INT;
+END_VAR
+BEGIN
+llen := 0;
+pos := 0;
+_len := length;
+REPEAT
+    digit := INT_TO_BYTE(_len MOD 128);
+    _len := _len / 128;
+    IF (_len > 0) THEN
+        digit_bitview[7] := 1; // digit |= 0x80;
+    END_IF;
+    lenBuf[pos] := digit;
+    pos := pos + 1;
+    llen := llen + 1;
+UNTIL (_len <= 0) // do..while(len>0)
+END_REPEAT;
+Data.buffer[4-llen] := header;
+FOR i := 0 TO llen-1 DO
+    Data.buffer[5-llen+i] := lenBuf[i];
+END_FOR;
+sendTCP(offset := 4-llen, size := length+1+llen);
+Data.lastOutActivity := Data.runTime;
+END_FUNCTION
+(**************************************************************)
+
+FUNCTION writeString : INT
+VAR_INPUT
+    iStr : STRING;
+    pos : INT;
+END_VAR
+VAR_TEMP
+    strCharView : ARRAY[0..255] OF CHAR;
+    str AT strCharView : STRING;
+    newPos : INT;
+    i : DINT;
+    j : INT;
+END_VAR
+BEGIN
+str := iStr;
+newPos := pos + 2;
+i := 0;
+FOR j := 0 TO LEN(S := str)-1 DO
+    Data.buffer[newPos] := CHAR_TO_BYTE(strCharView[j + 2]);
+    newPos := newPos + 1;
+    i := i + 1;
+END_FOR;
+Data.buffer[newPos - 2 - i] := DWORD_TO_BYTE(SHR(IN := DINT_TO_DWORD(i), N := 8));
+Data.buffer[newPos - 1 - i] := DINT_TO_BYTE(i);
+writeString := newPos;
+END_FUNCTION
+(**************************************************************)
