@@ -28,6 +28,7 @@ The following needs to be setup in Simatic Manager:
 - readByteToBuf	: FC56
 - publish     	: FC57
 - subscribe		: FC58
+- connected		: FC59
 
 - MQTT   		: FB1
 - readPacket	: FB2

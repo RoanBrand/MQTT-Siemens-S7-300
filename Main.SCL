@@ -1,10 +1,17 @@
-FUNCTION_BLOCK mqtt
+FUNCTION connected : BOOL
+BEGIN
+connected := Data.ethConnected;
+IF NOT connected AND (Data._state = Globals.MQTT_CONNECTED) THEN
+    Data._state := Globals.MQTT_CONNECTION_LOST;
+END_IF;
+END_FUNCTION
+(**************************************************************)
+
+FUNCTION_BLOCK MQTT
 VAR_INPUT
     conn : BOOL;
     pub : BOOL;
     sub : BOOL;
-    
-    cntrl_reset : BOOL;
 END_VAR
 VAR_TEMP
     i : INT;
@@ -41,8 +48,7 @@ VAR
     cntrl_error : BOOL;
     cntrl_status : WORD;
     cntrl_lastErrStatus : WORD;
-    cntrl_res1 : DWORD;
-    cntrl_res2 : DWORD;
+    cntrl_res1, cntrl_res2 : DWORD;
 
     tl : INT;
     inTopic : ARRAY[0..20] OF CHAR;
@@ -133,36 +139,30 @@ CASE (Data._state) OF
             1 :    // Read complete packet
                 IF (PacketReader.xDone) THEN
                     IF (PacketReader.result > 0) THEN
+                        
                         Data.lastInActivity := Data.runTime;
                         typeOfPacket := BYTE_TO_INT(Data.buffer[0] AND B#16#F0);
-                        //IF (BYTE_TO_INT(typeOfPacket) = Globals.MQTTPINGREQ) THEN
-                            //Data.buffer[0] := INT_TO_BYTE(Globals.MQTTPINGRESP);
-                           // Data.buffer[1] := 0;
-                           // sendTCP(offset := 0, size := 2);
+                        
                         IF (typeOfPacket = Globals.MQTTPUBLISH) THEN
                             tl := WORD_TO_INT(SHL(IN := BYTE_TO_WORD(Data.buffer[PacketReader.lengthLength+1]), N := 8)) + BYTE_TO_INT(Data.buffer[PacketReader.lengthLength+2]);
-                            mw30 := INT_TO_WORD(tl);
-                            mw31 := INT_TO_WORD(PacketReader.lengthLength);
-                            m33.1 := true;
                             FOR i := 0 TO tl-1 DO
                                 inTopic[i] := BYTE_TO_CHAR(Data.buffer[PacketReader.lengthLength+3+i]);
                             END_FOR;
-                            m33.2 := true;
                             inTopic[tl] := BYTE_TO_CHAR(B#16#00);
                             payload := PacketReader.lengthLength+3+tl;
                             payloadSize := PacketReader.result - PacketReader.lengthLength -3-tl;
-                            m33.3 := true;
+                            
                             // app
                             IF inTopic[0] = 'Q' THEN
-                                m33.5 := true;
                                 IF Data.buffer[payload] = CHAR_TO_BYTE('A') THEN
                                     q124.0 := NOT q124.0 ;
                                 END_IF;
                             END_IF;
-                            m33.4 := true;
+                            
                         ELSIF (typeOfPacket = Globals.MQTTPINGRESP) THEN
                             Data.pingOutstanding := false;
                         END_IF;
+                        
                     END_IF;
                     intState := 0;
                 END_IF;
@@ -222,38 +222,31 @@ END_CASE;
 
     PacketReader();
     
-(* ag_cntrl*)
-
-    AG_CNTRL(ACT := cntrl_reset,
-        ID := 1,
-        LADDR := W#16#0100,
-        CMD := 2,
-        DONE => cntrl_done,
-        ERROR => cntrl_error,
-        STATUS => cntrl_status,
-        RESULT1 => cntrl_res1,
-        RESULT2 => cntrl_res2
-    );
-    
-    IF cntrl_reset THEN
-        cntrl_reset := false;
-    END_IF;
-    
-    IF cntrl_done AND NOT cntrl_error THEN
-        ;
-    END_IF;
-    
-    IF cntrl_error THEN
-        cntrl_lastErrStatus := cntrl_status;
-    END_IF;
-
+(* TCP Connection Status*)
+AG_CNTRL(   ACT := 1,
+            ID := 1,
+            LADDR := W#16#0100,
+            CMD := 1,
+            DONE => cntrl_done,
+            ERROR => cntrl_error,
+            STATUS => cntrl_status,
+            RESULT1 => cntrl_res1,
+            RESULT2 => cntrl_res2
+);
+IF cntrl_done AND NOT cntrl_error THEN
+    Data.ethConnected := ((DWORD_TO_WORD(cntrl_res1) AND W#16#7000) = W#16#7000);
+END_IF;
+IF cntrl_error THEN
+    cntrl_lastErrStatus := cntrl_status;
+END_IF;
 END_FUNCTION_BLOCK
 
+// test app
 ORGANIZATION_BLOCK OB1
 VAR_TEMP
     // Reserved
     info : ARRAY[0..19] OF BYTE;
     // Temporary Variables
 END_VAR
-    mqtt.db66();
+    MQTT.db66();
 END_ORGANIZATION_BLOCK
