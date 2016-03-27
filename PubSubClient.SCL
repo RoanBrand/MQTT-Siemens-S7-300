@@ -1,0 +1,663 @@
+(**************************************************************)
+DATA_BLOCK Data
+STRUCT
+    buffer : ARRAY[0..127] OF BYTE;
+    nextMsgId : INT;
+
+    reqSend : BOOL;
+    sendSize : INT;
+    tcpSendBuf : ARRAY[0..127] OF BYTE;
+    
+    tcpRecBuf : ARRAY[0..127] OF BYTE;
+    pRec : INT;
+    pRead : INT;
+
+    _state : INT := -1;
+    packet_state : INT;
+
+    pingOutstanding : BOOL;
+    lastInActivity : TIME;
+    lastOutActivity : TIME;
+    runTime : TIME;
+END_STRUCT
+BEGIN
+END_DATA_BLOCK
+(**************************************************************)
+DATA_BLOCK Globals
+STRUCT
+    MQTT_KEEPALIVE    : TIME := T#15s;
+    MQTT_SOCKET_TIMEOUT : TIME := T#15s;
+
+    // States
+    MQTT_CONNECTION_TIMEOUT		: INT :=   -4;
+    MQTT_CONNECTION_LOST		: INT :=   -3;
+    MQTT_CONNECT_FAILED			: INT :=    -2;
+    MQTT_DISCONNECTED 			: INT :=    -1;
+    MQTT_CONNECTING             : INT :=       0;
+    MQTT_CONNECTED 				: INT :=     1;
+    MQTT_CONN_BAD_PROTOCOL		: INT := 2;
+    MQTT_CONN_BAD_CLIENT_ID		: INT := 3;
+    MQTT_CONN_UNAVAILABLE		: INT := 4;
+    MQTT_CONN_BAD_CREDEN		: INT := 5;
+    MQTT_CONN_UNAUTHORIZED		: INT := 6;
+
+    // Packet headers
+    MQTTCONNECT 		: INT := 16;
+    MQTTCONNACK			: INT := 32;
+    MQTTPUBLISH        	: INT := 48;
+    MQTTPUBACK        	: INT := 64;
+    MQTTPUBREC        	: INT := 80;
+    MQTTPUBREL        	: INT := 96;
+    MQTTPUBCOMP        	: INT := 112;
+    MQTTSUBSCRIBE     	: INT := 130;
+    MQTTSUBACK         	: INT := 144;
+    MQTTUNSUBSCRIBE 	: INT := 160;
+    MQTTUNSUBACK    	: INT := 176;
+    MQTTPINGREQ        	: INT := 192;
+    MQTTPINGRESP    	: INT := 208;
+    MQTTDISCONNECT    	: INT := 224;
+    MQTTReserved    	: INT := 240;
+
+    MQTTQOS0	: INT := 0;
+    MQTTQOS1    : INT := 2;
+    MQTTQOS2 	: INT := 4;
+END_STRUCT
+BEGIN
+END_DATA_BLOCK
+(**************************************************************)
+FUNCTION sendTCP : VOID
+VAR_INPUT
+    offset : INT;
+    size : INT;
+END_VAR
+VAR_TEMP
+    i : INT;
+END_VAR
+BEGIN
+FOR i := 0 TO size-1 DO
+    Data.tcpSendBuf[i] := Data.buffer[offset+i];
+END_FOR;
+Data.sendSize := size;
+Data.reqSend := true;
+END_FUNCTION
+(**************************************************************)
+FUNCTION write : VOID
+VAR_INPUT
+    header : BYTE;
+    length : INT;
+END_VAR
+VAR_TEMP
+    lenBuf : ARRAY[0..3] OF BYTE;
+    llen : INT;
+    digit : BYTE;
+    digit_bitview at digit : ARRAY[0..7] of BOOL;
+    pos : INT;
+    rc : INT;
+    _len : INT;
+    i : INT;
+END_VAR
+BEGIN
+llen := 0;
+pos := 0;
+_len := length;
+REPEAT
+    digit := INT_TO_BYTE(_len MOD 128);
+    _len := _len / 128;
+    IF (_len > 0) THEN
+        digit_bitview[7] := 1; // digit |= 0x80;
+    END_IF;
+    lenBuf[pos] := digit;
+    pos := pos + 1;
+    llen := llen + 1;
+UNTIL (_len <= 0) // do..while(len>0)
+END_REPEAT;
+Data.buffer[4-llen] := header;
+FOR i := 0 TO llen-1 DO
+    Data.buffer[5-llen+i] := lenBuf[i];
+END_FOR;
+sendTCP(offset := 4-llen, size := length+1+llen);
+Data.lastOutActivity := Data.runTime;
+END_FUNCTION
+(**************************************************************)
+FUNCTION writeString : INT
+VAR_INPUT
+    iStr : STRING;
+    pos : INT;
+END_VAR
+VAR_TEMP
+    strCharView : ARRAY[0..255] OF CHAR;
+    str AT strCharView : STRING;
+    newPos : INT;
+    i : DINT;
+    j : INT;
+END_VAR
+BEGIN
+str := iStr;
+newPos := pos + 2;
+i := 0;
+FOR j := 0 TO LEN(S := str)-1 DO
+    Data.buffer[newPos] := CHAR_TO_BYTE(strCharView[j + 2]);
+    newPos := newPos + 1;
+    i := i + 1;
+END_FOR;
+Data.buffer[newPos - 2 - i] := DWORD_TO_BYTE(SHR(IN := DINT_TO_DWORD(i), N := 8));
+Data.buffer[newPos - 1 - i] := DINT_TO_BYTE(i);
+writeString := newPos;
+END_FUNCTION
+(**************************************************************)
+FUNCTION available : BOOL
+BEGIN
+available := (Data.pRead < Data.pRec);
+END_FUNCTION
+(**************************************************************)
+FUNCTION readByte : BYTE
+BEGIN
+readByte := Data.tcpRecBuf[Data.pRead];
+Data.pRead := Data.pRead + 1;
+END_FUNCTION
+(**************************************************************)
+FUNCTION readByteToBuf : INT
+VAR_INPUT
+    pos : INT;
+END_VAR
+VAR_TEMP
+    cur_index : INT;
+    readed : BYTE;
+END_VAR
+BEGIN
+cur_index := pos;
+readed := readByte();
+Data.buffer[cur_index] := readed;
+cur_index := cur_index + 1;
+readByteToBuf := cur_index;
+END_FUNCTION
+(**************************************************************)
+FUNCTION_BLOCK readPacket
+VAR_IN_OUT
+    iBegin : BOOL;
+    lengthLength : INT;
+END_VAR
+VAR
+    _len : INT;
+    isPublish : BOOL;
+    multiplier : DINT;
+    length : DINT;
+    digit : BYTE;
+    skip : INT;
+    start : INT;
+
+    State : INT;
+    oldState : INT;
+
+    previousTime : TIME;
+END_VAR
+VAR_OUTPUT
+    xDone : BOOL;
+    result : INT;
+END_VAR
+BEGIN
+CASE (State) OF
+    -1: // Alternative to original blocking call
+        IF ((Data.runTime - previousTime) >= Globals.MQTT_SOCKET_TIMEOUT) THEN
+            xDone := true;
+            result := 0;
+            State := 0;
+            m46.5 := true;
+        ELSIF available() THEN
+            State := oldState;
+        END_IF;
+    0 : // Wait for Start
+        oldState := 0;
+        IF (iBegin) THEN
+            iBegin := false;
+            xDone := false;
+            _len := 0;
+            State := 1;
+        END_IF;
+    1 :    // Getting first byte
+        oldState := 1;
+        IF available() THEN
+            _len := readByteToBuf(pos := _len);
+            isPublish := BYTE_TO_INT(Data.buffer[0] AND B#16#F0) = Globals.MQTTPUBLISH;
+            multiplier := 1;
+            length := 0;
+            digit := B#16#00;
+            skip := 0;
+            start := 0;
+            State := 2;
+        ELSE
+            previousTime := Data.runTime;
+            State := -1;
+        END_IF;
+    2 : // do..while((digit & 128) != 0) loop equivalent
+        oldState := 2;
+        IF available() THEN
+            digit := readByte();
+            Data.buffer[_len] := digit;
+            _len := _len + 1;
+            length := length + (BYTE_TO_DINT(digit AND B#16#7F) * multiplier);
+            multiplier := multiplier * 128;
+            IF (BYTE_TO_INT(digit AND B#16#80) = 0) THEN
+                lengthLength := _len - 1;
+                IF (isPublish) THEN
+                    State := 3;
+                ELSE
+                    State := 5;
+                END_IF;
+            END_IF;
+        ELSE
+            previousTime := Data.runTime;
+            State := -1;
+        END_IF;
+    3 :    // First Publish Byte
+        oldState := 3;
+        IF available() THEN
+            _len := readByteToBuf(pos := _len);
+            State := 4;
+        ELSE
+            previousTime := Data.runTime;
+            State := -1;
+        END_IF;
+    4 :    // Second Publish Byte
+        oldState := 4;
+        IF available() THEN
+            _len := readByteToBuf(pos := _len);
+            skip := WORD_TO_INT(SHL(IN := BYTE_TO_WORD(Data.buffer[lengthLength+1]), N := 8)) + WORD_TO_INT(Data.buffer[lengthLength+2]);
+            start := 2;
+            IF BYTE_TO_INT(Data.buffer[0] AND INT_TO_BYTE(Globals.MQTTQOS1)) > 0 THEN
+                skip := skip + 2;
+            END_IF;
+            State := 5;
+        ELSE
+            previousTime := Data.runTime;
+            State := -1;
+        END_IF;
+    5 :    // Read rest of Packet (for loop replacement)
+        oldState := 5;
+        //loop exit
+        IF (Start = length) THEN
+            IF (_len > 128) THEN
+                _len := 0; // just drop packet if too long
+            END_IF;
+            xDone := true;
+            result := _len;
+            Data.pRec := 0;
+            Data.pRead := 0;
+            State := 0;
+        ELSIF available() THEN
+            digit := readByte();
+            IF (_len < 128) THEN
+                Data.buffer[_len] := digit;
+            END_IF;
+            _len := _len + 1;
+            //loop
+            start := start + 1;
+        ELSE
+            previousTime := Data.runTime;
+            State := -1;
+        END_IF;
+END_CASE;
+END_FUNCTION_BLOCK
+(**************************************************************)
+FUNCTION publish : VOID
+VAR_INPUT
+    topic : STRING[50];
+    retained : BOOL;
+END_VAR
+VAR_TEMP
+    length : INT;
+    i : INT;
+    header : BYTE;
+    holdstring : STRING[50];
+END_VAR
+BEGIN
+holdstring := topic;
+length := 5;
+length := writeString(iStr := holdstring, pos := length);
+FOR i := 0 TO 30 DO
+    Data.buffer[length] := INT_TO_BYTE(65 + i);
+    length := length + 1;
+END_FOR;
+header := INT_TO_BYTE(Globals.MQTTPUBLISH);
+IF retained THEN
+    header := header OR B#16#01;
+END_IF;
+write(header := header, length := length-5);
+END_FUNCTION
+(**************************************************************)
+FUNCTION subscribe : VOID
+VAR_INPUT
+    topic : STRING[50];
+END_VAR
+VAR_TEMP
+    length : INT;
+    holdstring : STRING[50];
+END_VAR
+BEGIN
+holdstring := topic;
+IF (128 < (9 + LEN(holdstring))) THEN
+    RETURN;
+END_IF;
+length := 5;
+Data.nextMsgId := Data.nextMsgId + 1;
+IF (Data.nextMsgId <= 0) THEN
+    Data.nextMsgId := 1;
+END_IF;
+Data.buffer[length] := DWORD_TO_BYTE(SHR(IN := INT_TO_DWORD(Data.nextMsgId), N := 8));
+length := length + 1;
+Data.buffer[length] := INT_TO_BYTE(Data.nextMsgId) AND B#16#FF;
+length := length + 1;
+length := writeString(iStr := holdstring, pos := length);
+Data.buffer[length] := 0; //qos 0
+length := length + 1;
+write(header := INT_TO_BYTE(Globals.MQTTSUBSCRIBE), length := length-5);
+END_FUNCTION
+(**************************************************************)
+FUNCTION connect : VOID
+VAR_INPUT
+    id : STRING[20];
+END_VAR
+VAR_TEMP
+    local_id : STRING[20];
+    result : INT;
+    length : INT;
+
+    j : INT;
+    d : ARRAY[0..6] OF BYTE;
+    llen : INT;
+    _len : INT;
+END_VAR
+BEGIN
+local_id := id;
+result := 0;
+Data.nextMsgId := 1;
+length := 5;
+d[0]:=B#16#00;d[1]:=B#16#04;d[2]:=B#16#4D;d[3]:=B#16#51;d[4]:=B#16#54;d[5]:=B#16#54;d[6]:=B#16#04;
+
+// header
+FOR j := 0 TO 6 DO
+    Data.buffer[length] := d[j];
+    length := length + 1;
+END_FOR;
+
+// no user, pass, willTopic
+Data.buffer[length] := B#16#00;
+length := length + 1;
+
+// timeout - TIME_TO_DINT gives ms
+Data.buffer[length] := DWORD_TO_BYTE(SHR(IN := DINT_TO_DWORD(TIME_TO_DINT(Globals.MQTT_KEEPALIVE)/1000), N := 8));
+length := length + 1;
+Data.buffer[length] := DINT_TO_BYTE(TIME_TO_DINT(Globals.MQTT_KEEPALIVE)/1000);
+length := length + 1;
+
+// client id
+length := writeString(iStr := local_id, pos := length);
+
+// write conenct header
+write(header := INT_TO_BYTE(Globals.MQTTCONNECT), length := length-5);
+
+Data.lastInActivity := Data.runTime;
+Data.lastOutActivity := Data.lastInActivity;
+
+Data._state := Globals.MQTT_CONNECTING;
+END_FUNCTION
+(**************************************************************)
+FUNCTION_BLOCK mqtt
+VAR_INPUT
+    conn : BOOL;
+    pub : BOOL;
+    sub : BOOL;
+    
+    cntrl_reset : BOOL;
+END_VAR
+VAR_TEMP
+    i : INT;
+END_VAR
+VAR
+    // MQTT Control
+    intState, lastState : INT;
+
+    // Received State
+    
+    xSendDone, xSendError : BOOL;
+    wSendState : WORD;
+    act_send : bool;
+    snd_busy : bool;
+    last_snd_err: WORD;
+    
+    xNewDataReceived, xReceiveError : BOOL;
+    wReceiveState : WORD;
+    iLength : INT;
+    last_rec_err : WORD;
+
+    tcpRecByte : BYTE;
+    
+    fconn, fpub, fsub : BOOL;
+
+    PacketReader : readPacket;
+    
+    msgId : INT;
+    typeOfPacket : INT;
+
+    runTimer : SFB4;
+    
+    cntrl_done : BOOL;
+    cntrl_error : BOOL;
+    cntrl_status : WORD;
+    cntrl_lastErrStatus : WORD;
+    cntrl_res1 : DWORD;
+    cntrl_res2 : DWORD;
+
+    tl : INT;
+    inTopic : ARRAY[0..20] OF CHAR;
+    payload : INT;
+    payloadSize : INT;
+END_VAR
+BEGIN
+runTimer(IN := true, PT := T#24D);
+Data.runTime := runTimer.ET;
+
+IF conn AND NOT fconn THEN
+    connect(id := 'CPU313C');
+END_IF;
+fconn := conn;
+
+IF pub AND NOT fpub THEN
+    publish(topic := 'SIEMENS hello!', retained := false);
+END_IF;
+fpub := pub;
+
+IF sub AND NOT fsub THEN
+    subscribe(topic := 'Q');
+END_IF;
+fsub := sub;
+
+(* Loop *)
+CASE (Data._state) OF
+    //(Globals.MQTT_DISCONNECTED):
+    -1:
+        lastState := Data._state;
+        ;
+    //Globals.MQTT_CONNECTING:
+    0:
+        IF (Data._state <> lastState) THEN
+            intState := 0;
+            lastState := Data._state;
+        END_IF;
+        CASE (intState) OF
+            0 : // Wait for received packet start
+                IF ((Data.runTime - Data.lastInActivity) >= Globals.MQTT_SOCKET_TIMEOUT) THEN
+                    Data._state := Globals.MQTT_CONNECTION_TIMEOUT;
+                ELSIF available() THEN
+                    PacketReader.iBegin := true;
+                    intState := 1;
+                END_IF;
+            1 :    // Read complete packet
+                IF (PacketReader.xDone) THEN
+                    IF (PacketReader.result = 4) THEN
+                        IF Data.buffer[3] = 0 THEN
+                            Data.lastInActivity := Data.runTime;
+                            Data.pingOutstanding := false;
+                            Data._state := Globals.MQTT_CONNECTED;
+                        ELSE
+                            Data._state := BYTE_TO_INT(Data.buffer[3]);
+                        END_IF;
+                    // ELSE maybe need equivalent/workaround to client->stop()
+                    END_IF;
+                END_IF;
+        END_CASE;
+     //Globals.MQTT_CONNECTED:
+     1:
+        IF (Data._state <> lastState) THEN
+            intState := 0;
+            lastState := Data._state;
+        END_IF;
+        IF ((Data.runTime - Data.lastInActivity) > Globals.MQTT_KEEPALIVE) OR ((Data.runTime - Data.lastOutActivity) > Globals.MQTT_KEEPALIVE) THEN
+            IF (Data.pingOutstanding) THEN
+                Data._state := Globals.MQTT_CONNECTION_TIMEOUT;
+                // need recovery
+            ELSE
+                Data.buffer[0] := INT_TO_BYTE(Globals.MQTTPINGREQ);
+                Data.buffer[1] := 0;
+                sendTCP(offset := 0, size := 2);
+                Data.lastOutActivity := Data.runTime;
+                Data.lastInActivity := Data.lastOutActivity;
+                Data.pingOutstanding := true;
+            END_IF;
+        END_IF;
+        
+        CASE (intState) OF
+            0 :    // Wait for received packet start
+                IF available() THEN
+                    PacketReader.lengthLength := 0;
+                    PacketReader.iBegin := true;
+                    msgId := 0;
+                    intState := 1;
+                END_IF;
+            1 :    // Read complete packet
+                IF (PacketReader.xDone) THEN
+                    IF (PacketReader.result > 0) THEN
+                        Data.lastInActivity := Data.runTime;
+                        typeOfPacket := BYTE_TO_INT(Data.buffer[0] AND B#16#F0);
+                        //IF (BYTE_TO_INT(typeOfPacket) = Globals.MQTTPINGREQ) THEN
+                            //Data.buffer[0] := INT_TO_BYTE(Globals.MQTTPINGRESP);
+                           // Data.buffer[1] := 0;
+                           // sendTCP(offset := 0, size := 2);
+                        IF (typeOfPacket = Globals.MQTTPUBLISH) THEN
+                            tl := WORD_TO_INT(SHL(IN := BYTE_TO_WORD(Data.buffer[PacketReader.lengthLength+1]), N := 8)) + BYTE_TO_INT(Data.buffer[PacketReader.lengthLength+2]);
+                            mw30 := INT_TO_WORD(tl);
+                            mw31 := INT_TO_WORD(PacketReader.lengthLength);
+                            m33.1 := true;
+                            FOR i := 0 TO tl-1 DO
+                                inTopic[i] := BYTE_TO_CHAR(Data.buffer[PacketReader.lengthLength+3+i]);
+                            END_FOR;
+                            m33.2 := true;
+                            inTopic[tl] := BYTE_TO_CHAR(B#16#00);
+                            payload := PacketReader.lengthLength+3+tl;
+                            payloadSize := PacketReader.result - PacketReader.lengthLength -3-tl;
+                            m33.3 := true;
+                            // app
+                            IF inTopic[0] = 'Q' THEN
+                                m33.5 := true;
+                                IF Data.buffer[payload] = CHAR_TO_BYTE('A') THEN
+                                    q124.0 := NOT q124.0 ;
+                                END_IF;
+                            END_IF;
+                            m33.4 := true;
+                        ELSIF (typeOfPacket = Globals.MQTTPINGRESP) THEN
+                            Data.pingOutstanding := false;
+                        END_IF;
+                    END_IF;
+                    intState := 0;
+                END_IF;
+        END_CASE;
+END_CASE;
+
+(* SENDING *)
+    IF (Data.reqSend AND NOT snd_busy) THEN
+        Data.reqSend := false;
+        act_send := true;
+    END_IF;
+    
+    AG_SEND(ACT := act_send,
+        ID := 1,
+        LADDR := W#16#0100,
+        SEND := Data.tcpSendBuf,
+        LEN := Data.sendSize,
+        
+        DONE => xSendDone,
+        ERROR => xSendError,
+        STATUS => wSendState
+    );
+    
+    IF (act_send) THEN
+        act_send := false;
+        snd_busy := true;
+    END_IF;
+    
+    IF (xSendDone AND snd_busy) THEN
+        snd_busy := false;
+    END_IF;
+    
+    IF (xSendError AND NOT xSendDone) THEN
+        last_snd_err := wSendState;
+        snd_busy := false;
+    END_IF;
+
+(* RECEIVING *)
+    AG_RECV(ID := 1,
+        LADDR := W#16#0100,
+        RECV := tcpRecByte,
+        
+        NDR => xNewDataReceived,
+        ERROR => xReceiveError,
+        STATUS => wReceiveState,
+        LEN => iLength
+    );
+    
+    IF xReceiveError THEN
+        last_rec_err := wReceiveState;
+    END_IF;
+    
+    IF xNewDataReceived THEN
+        Data.tcpRecBuf[Data.pRec] := tcpRecByte;
+        Data.pRec := Data.pRec + 1;
+    END_IF;
+
+    PacketReader();
+    
+(* ag_cntrl*)
+
+    AG_CNTRL(ACT := cntrl_reset,
+        ID := 1,
+        LADDR := W#16#0100,
+        CMD := 2,
+        DONE => cntrl_done,
+        ERROR => cntrl_error,
+        STATUS => cntrl_status,
+        RESULT1 => cntrl_res1,
+        RESULT2 => cntrl_res2
+    );
+    
+    IF cntrl_reset THEN
+        cntrl_reset := false;
+    END_IF;
+    
+    IF cntrl_done AND NOT cntrl_error THEN
+        ;
+    END_IF;
+    
+    IF cntrl_error THEN
+        cntrl_lastErrStatus := cntrl_status;
+    END_IF;
+
+END_FUNCTION_BLOCK
+
+ORGANIZATION_BLOCK OB1
+VAR_TEMP
+    // Reserved
+    info : ARRAY[0..19] OF BYTE;
+    // Temporary Variables
+END_VAR
+    mqtt.db66();
+END_ORGANIZATION_BLOCK
