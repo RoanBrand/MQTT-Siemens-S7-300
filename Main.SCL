@@ -43,6 +43,7 @@ VAR
     typeOfPacket : INT;
 
     runTimer : SFB4;
+    resetTime : TIME;
     
     cntrl_done : BOOL;
     cntrl_error : BOOL;
@@ -76,12 +77,22 @@ fsub := sub;
 
 (* Loop *)
 CASE (Data._state) OF
-    //(Globals.MQTT_DISCONNECTED):
-    -1:
+    -4..-1:	//(Globals.MQTT_DISCONNECTED):
         lastState := Data._state;
-        ;
-    //Globals.MQTT_CONNECTING:
-    0:
+        IF (Data.runTime - t#5s) > resetTime THEN
+        	resetTime := Data.runTime;
+        	AG_CNTRL(   ACT := 1,
+            			ID := 1,
+			            LADDR := W#16#0100,
+			            CMD := 2,
+			            DONE => cntrl_done,
+			            ERROR => cntrl_error,
+			            STATUS => cntrl_status,
+			            RESULT1 => cntrl_res1,
+			            RESULT2 => cntrl_res2
+			);
+		END_IF;
+    0: //Globals.MQTT_CONNECTING:
         IF (Data._state <> lastState) THEN
             intState := 0;
             lastState := Data._state;
