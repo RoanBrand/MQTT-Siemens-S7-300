@@ -28,7 +28,7 @@ readByteToBuf := cur_index;
 END_FUNCTION
 (**************************************************************)
 
-FUNCTION_BLOCK readPacket
+FUNCTION_BLOCK PacketReader
 VAR_IN_OUT
     iBegin : BOOL;
     lengthLength : INT;

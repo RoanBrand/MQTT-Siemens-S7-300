@@ -1,0 +1,44 @@
+(* Example Application Function Block calling MQTT *)
+FUNCTION_BLOCK FB66
+VAR_INPUT
+    conn : BOOL;	// Rise to Connect
+    pub : BOOL;		// Rise to Publish
+    sub : BOOL;		// Rise to Subscribe
+END_VAR
+VAR_TEMP
+    i : INT;
+END_VAR
+VAR
+	fcon, fpub, fsub : BOOL;
+END_VAR
+BEGIN
+
+IF conn AND NOT fcon THEN
+    connect(id := 'CPU313C');
+END_IF;
+fcon := conn;
+
+IF pub AND NOT fpub THEN
+    publish(topic := 'SIEMENS hello!', retained := false);
+END_IF;
+fpub := pub;
+
+IF sub AND NOT fsub THEN
+    subscribe(topic := 'Q');
+END_IF;
+fsub := sub;
+
+END_FUNCTION_BLOCK
+
+(* OB1 Cyclic execution by PLC *)
+ORGANIZATION_BLOCK OB1
+VAR_TEMP
+    // Reserved
+    info : ARRAY[0..19] OF BYTE;
+    // Temporary Variables
+END_VAR
+
+FB66.DB66();	// Example Application
+MQTT.DB67();	// MQTT Library loop (Must be called in every App)
+
+END_ORGANIZATION_BLOCK

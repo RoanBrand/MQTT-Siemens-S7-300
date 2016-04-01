@@ -8,78 +8,52 @@ END_FUNCTION
 (**************************************************************)
 
 FUNCTION_BLOCK MQTT
-VAR_INPUT
-    conn : BOOL;
-    pub : BOOL;
-    sub : BOOL;
-END_VAR
 VAR_TEMP
     i : INT;
 END_VAR
 VAR
-    // MQTT Control
-    intState, lastState : INT;
+    // MQTT Protocol State Control
+    intState, lastState : INT;			// State Machine
+    tcpRecByte : BYTE;					// Next incoming TCP byte
+    myPacketReader : PacketReader;		// MQTT PacketReader Instance
+    msgId : INT;
+    typeOfPacket : INT;
+    runTimer : SFB4;
+    resetTime : TIME;
+    tl : INT;
+    inTopic : ARRAY[0..20] OF CHAR;
+    payload : INT;
+    payloadSize : INT;
 
-    // Received State
-    
+    // Send TCP State
     xSendDone, xSendError : BOOL;
     wSendState : WORD;
     act_send : bool;
     snd_busy : bool;
     last_snd_err: WORD;
     
+    // Receive TCP State
     xNewDataReceived, xReceiveError : BOOL;
     wReceiveState : WORD;
     iLength : INT;
     last_rec_err : WORD;
 
-    tcpRecByte : BYTE;
-    
-    fconn, fpub, fsub : BOOL;
-
-    PacketReader : readPacket;
-    
-    msgId : INT;
-    typeOfPacket : INT;
-
-    runTimer : SFB4;
-    resetTime : TIME;
-    
+    // Control TCP State
     cntrl_done : BOOL;
     cntrl_error : BOOL;
     cntrl_status : WORD;
     cntrl_lastErrStatus : WORD;
     cntrl_res1, cntrl_res2 : DWORD;
-
-    tl : INT;
-    inTopic : ARRAY[0..20] OF CHAR;
-    payload : INT;
-    payloadSize : INT;
 END_VAR
 BEGIN
 runTimer(IN := true, PT := T#24D);
 Data.runTime := runTimer.ET;
 
-IF conn AND NOT fconn THEN
-    connect(id := 'CPU313C');
-END_IF;
-fconn := conn;
-
-IF pub AND NOT fpub THEN
-    publish(topic := 'SIEMENS hello!', retained := false);
-END_IF;
-fpub := pub;
-
-IF sub AND NOT fsub THEN
-    subscribe(topic := 'Q');
-END_IF;
-fsub := sub;
-
 (* Loop *)
 CASE (Data._state) OF
     -4..-1:	//(Globals.MQTT_DISCONNECTED):
         lastState := Data._state;
-        IF (Data.runTime - t#5s) > resetTime THEN
+        IF ((Data.runTime - t#10s) > resetTime) AND NOT Data.ethConnected THEN
         	resetTime := Data.runTime;
         	AG_CNTRL(   ACT := 1,
             			ID := 1,
@@ -102,12 +76,12 @@ CASE (Data._state) OF
                 IF ((Data.runTime - Data.lastInActivity) >= Globals.MQTT_SOCKET_TIMEOUT) THEN
                     Data._state := Globals.MQTT_CONNECTION_TIMEOUT;
                 ELSIF available() THEN
-                    PacketReader.iBegin := true;
+                    myPacketReader.iBegin := true;
                     intState := 1;
                 END_IF;
             1 :    // Read complete packet
-                IF (PacketReader.xDone) THEN
-                    IF (PacketReader.result = 4) THEN
+                IF (myPacketReader.xDone) THEN
+                    IF (myPacketReader.result = 4) THEN
                         IF Data.buffer[3] = 0 THEN
                             Data.lastInActivity := Data.runTime;
                             Data.pingOutstanding := false;
@@ -119,8 +93,7 @@ CASE (Data._state) OF
                     END_IF;
                 END_IF;
         END_CASE;
-     //Globals.MQTT_CONNECTED:
-     1:
+    1: //Globals.MQTT_CONNECTED:
         IF (Data._state <> lastState) THEN
             intState := 0;
             lastState := Data._state;
@@ -142,26 +115,26 @@ CASE (Data._state) OF
         CASE (intState) OF
             0 :    // Wait for received packet start
                 IF available() THEN
-                    PacketReader.lengthLength := 0;
-                    PacketReader.iBegin := true;
+                    myPacketReader.lengthLength := 0;
+                    myPacketReader.iBegin := true;
                     msgId := 0;
                     intState := 1;
                 END_IF;
             1 :    // Read complete packet
-                IF (PacketReader.xDone) THEN
-                    IF (PacketReader.result > 0) THEN
+                IF (myPacketReader.xDone) THEN
+                    IF (myPacketReader.result > 0) THEN
                         
                         Data.lastInActivity := Data.runTime;
                         typeOfPacket := BYTE_TO_INT(Data.buffer[0] AND B#16#F0);
                         
                         IF (typeOfPacket = Globals.MQTTPUBLISH) THEN
-                            tl := WORD_TO_INT(SHL(IN := BYTE_TO_WORD(Data.buffer[PacketReader.lengthLength+1]), N := 8)) + BYTE_TO_INT(Data.buffer[PacketReader.lengthLength+2]);
+                            tl := WORD_TO_INT(SHL(IN := BYTE_TO_WORD(Data.buffer[myPacketReader.lengthLength+1]), N := 8)) + BYTE_TO_INT(Data.buffer[myPacketReader.lengthLength+2]);
                             FOR i := 0 TO tl-1 DO
-                                inTopic[i] := BYTE_TO_CHAR(Data.buffer[PacketReader.lengthLength+3+i]);
+                                inTopic[i] := BYTE_TO_CHAR(Data.buffer[myPacketReader.lengthLength+3+i]);
                             END_FOR;
                             inTopic[tl] := BYTE_TO_CHAR(B#16#00);
-                            payload := PacketReader.lengthLength+3+tl;
-                            payloadSize := PacketReader.result - PacketReader.lengthLength -3-tl;
+                            payload := myPacketReader.lengthLength+3+tl;
+                            payloadSize := myPacketReader.result - myPacketReader.lengthLength -3-tl;
                             
                             // app
                             IF inTopic[0] = 'Q' THEN
@@ -180,7 +153,7 @@ CASE (Data._state) OF
         END_CASE;
 END_CASE;
 
-(* SENDING *)
+(* TCP SENDING *)
     IF (Data.reqSend AND NOT snd_busy) THEN
         Data.reqSend := false;
         act_send := true;
@@ -211,7 +184,7 @@ END_CASE;
         snd_busy := false;
     END_IF;
 
-(* RECEIVING *)
+(* TCP RECEIVING *)
     AG_RECV(ID := 1,
         LADDR := W#16#0100,
         RECV := tcpRecByte,
@@ -231,9 +204,9 @@ END_CASE;
         Data.pRec := Data.pRec + 1;
     END_IF;
 
-    PacketReader();
+    myPacketReader();
     
-(* TCP Connection Status*)
+(* TCP CONTROL STATUS *)
 AG_CNTRL(   ACT := 1,
             ID := 1,
             LADDR := W#16#0100,
@@ -251,13 +224,3 @@ IF cntrl_error THEN
     cntrl_lastErrStatus := cntrl_status;
 END_IF;
 END_FUNCTION_BLOCK
-
-// test app
-ORGANIZATION_BLOCK OB1
-VAR_TEMP
-    // Reserved
-    info : ARRAY[0..19] OF BYTE;
-    // Temporary Variables
-END_VAR
-    MQTT.db66();
-END_ORGANIZATION_BLOCK

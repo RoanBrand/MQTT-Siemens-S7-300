@@ -1,4 +1,4 @@
-# MQTT-Siemens-S7
+# MQTT-Siemens-S7-300
 Work in Progress!
 
 MQTT functionality written in SCL for S7-300 with CP343-1
@@ -14,11 +14,16 @@ You must have a CP343-1 module with v2.1 or higher.
 This code is written in Step7 SCL v5.3 SP1. It probably needs modification for it to compile in TIA.
 
 # How to Use
-The following needs to be setup in Simatic Manager:
+The following needs to be setup in you project in Simatic Manager:
 
 1. The tcp connection to the broker must be set up in NetPro (IP Address + Port: 1883)
+2. You must call the MQTT function block in your OB1 program loop.
 2. Your project's symbol list needs appropriate block numbers assigned to them, mine is:
 
+- MQTT   		: FB1
+- PacketReader	: FB2
+- Globals  		: DB100
+- Data			: DB101
 - connect 		: FC50
 - sendTCP		: FC51
 - write 		: FC52
@@ -30,8 +35,7 @@ The following needs to be setup in Simatic Manager:
 - subscribe		: FC58
 - connected		: FC59
 
-- MQTT   		: FB1
-- readPacket	: FB2
 
-- Globals  		: DB100
-- Data			: DB101
+# Example
+Included is an example application function block (FB66) that is typically called from OB1.
+Inputs for this block can trigger a MQTT broker connect, publish a message or subscribe to a MQTT channel.
