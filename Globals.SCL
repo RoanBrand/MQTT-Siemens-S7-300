@@ -1,16 +1,18 @@
 DATA_BLOCK Data
 STRUCT
-    buffer : ARRAY[0..127] OF BYTE;
-    nextMsgId : INT;
+    // TCP Incoming
+    tcpRecBuf : ARRAY[0..255] OF BYTE;
+    pRec : INT;                 // Next incoming byte pos
+    pRead : INT;                // Next byte to process
+    RecBufFull : BOOL;          // Overflow
 
+    // TCP Outgoing
+    tcpSendBuf : ARRAY[0..127] OF BYTE;
     reqSend : BOOL;
     sendSize : INT;
-    tcpSendBuf : ARRAY[0..127] OF BYTE;
-    
-    tcpRecBuf : ARRAY[0..127] OF BYTE;
-    pRec : INT;
-    pRead : INT;
 
+    buffer : ARRAY[0..127] OF BYTE;
+    nextMsgId : INT;
     _state : INT := -1;
     packet_state : INT;
 
@@ -30,12 +32,12 @@ STRUCT
     MQTT_SOCKET_TIMEOUT : TIME := T#15s;
 
     // States
-    MQTT_CONNECTION_TIMEOUT     : INT :=   -4;
-    MQTT_CONNECTION_LOST        : INT :=   -3;
-    MQTT_CONNECT_FAILED         : INT :=    -2;
-    MQTT_DISCONNECTED           : INT :=    -1;
-    MQTT_CONNECTING             : INT :=       0;
-    MQTT_CONNECTED              : INT :=     1;
+    MQTT_CONNECTION_TIMEOUT     : INT := -4;
+    MQTT_CONNECTION_LOST        : INT := -3;
+    MQTT_CONNECT_FAILED         : INT := -2;
+    MQTT_DISCONNECTED           : INT := -1;
+    MQTT_CONNECTING             : INT := 0;
+    MQTT_CONNECTED              : INT := 1;
     MQTT_CONN_BAD_PROTOCOL      : INT := 2;
     MQTT_CONN_BAD_CLIENT_ID     : INT := 3;
     MQTT_CONN_UNAVAILABLE       : INT := 4;

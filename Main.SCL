@@ -25,6 +25,9 @@ VAR
     payload : INT;
     payloadSize : INT;
 
+    //debug
+    recBufLeft : INT;
+
     // Send TCP State
     xSendDone, xSendError : BOOL;
     wSendState : WORD;
@@ -154,58 +157,73 @@ CASE (Data._state) OF
 END_CASE;
 
 (* TCP SENDING *)
-    IF (Data.reqSend AND NOT snd_busy) THEN
-        Data.reqSend := false;
-        act_send := true;
-    END_IF;
-    
-    AG_SEND(ACT := act_send,
-        ID := 1,
-        LADDR := W#16#0100,
-        SEND := Data.tcpSendBuf,
-        LEN := Data.sendSize,
-        
-        DONE => xSendDone,
-        ERROR => xSendError,
-        STATUS => wSendState
-    );
-    
-    IF (act_send) THEN
-        act_send := false;
-        snd_busy := true;
-    END_IF;
-    
-    IF (xSendDone AND snd_busy) THEN
-        snd_busy := false;
-    END_IF;
-    
-    IF (xSendError AND NOT xSendDone) THEN
-        last_snd_err := wSendState;
-        snd_busy := false;
-    END_IF;
+IF (Data.reqSend AND NOT snd_busy) THEN
+    Data.reqSend := false;
+    act_send := true;
+END_IF;
+
+AG_SEND(    ACT := act_send,
+            ID := 1,
+            LADDR := W#16#0100,
+            SEND := Data.tcpSendBuf,
+            LEN := Data.sendSize,
+            DONE => xSendDone,
+            ERROR => xSendError,
+            STATUS => wSendState
+);
+
+IF (act_send) THEN
+    act_send := false;
+    snd_busy := true;
+END_IF;
+
+IF (xSendDone AND snd_busy) THEN
+    snd_busy := false;
+END_IF;
+
+IF (xSendError AND NOT xSendDone) THEN
+    last_snd_err := wSendState;
+    snd_busy := false;
+END_IF;
 
 (* TCP RECEIVING *)
-    AG_RECV(ID := 1,
-        LADDR := W#16#0100,
-        RECV := tcpRecByte,
-        
-        NDR => xNewDataReceived,
-        ERROR => xReceiveError,
-        STATUS => wReceiveState,
-        LEN => iLength
-    );
-    
-    IF xReceiveError THEN
-        last_rec_err := wReceiveState;
-    END_IF;
-    
-    IF xNewDataReceived THEN
+AG_RECV(    ID := 1,
+            LADDR := W#16#0100,
+            RECV := tcpRecByte,
+            NDR => xNewDataReceived,
+            ERROR => xReceiveError,
+            STATUS => wReceiveState,
+            LEN => iLength
+);
+
+IF xReceiveError THEN
+    last_rec_err := wReceiveState;
+END_IF;
+
+IF xNewDataReceived THEN
+    IF Data.RecBufFull THEN
+        m33.1 := true;
+    ELSE
         Data.tcpRecBuf[Data.pRec] := tcpRecByte;
         Data.pRec := Data.pRec + 1;
+        IF (Data.pRec >= 256) THEN
+            Data.pRec := 0;
+        END_IF;
+        IF (Data.pRec = Data.pRead) THEN
+            Data.RecBufFull := true;
+        END_IF;
     END_IF;
+END_IF;
 
-    myPacketReader();
-    
+myPacketReader();
+
+//debug
+IF (Data.pRec >= Data.pRead) THEN
+    recBufLeft := 256 - (Data.pRec - Data.pRead);
+ELSE
+    recBufLeft := 256 - (Data.pRead - Data.pRec);
+END_IF;
+
 (* TCP CONTROL STATUS *)
 AG_CNTRL(   ACT := 1,
             ID := 1,

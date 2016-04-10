@@ -1,6 +1,6 @@
 FUNCTION available : BOOL
 BEGIN
-available := (Data.pRead < Data.pRec);
+available := (Data.pRead <> Data.pRec) OR Data.RecBufFull;
 END_FUNCTION
 (**************************************************************)
 
@@ -8,6 +8,10 @@ FUNCTION readByte : BYTE
 BEGIN
 readByte := Data.tcpRecBuf[Data.pRead];
 Data.pRead := Data.pRead + 1;
+IF (Data.pRead >= 256) THEN
+    Data.pRead := 0;
+END_IF;
+Data.RecBufFull := false;
 END_FUNCTION
 (**************************************************************)
 
@@ -58,7 +62,6 @@ CASE (State) OF
             xDone := true;
             result := 0;
             State := 0;
-            m46.5 := true;
         ELSIF available() THEN
             State := oldState;
         END_IF;
@@ -131,14 +134,12 @@ CASE (State) OF
     5 :    // Read rest of Packet (for loop replacement)
         oldState := 5;
         //loop exit
-        IF (Start = length) THEN
+        IF (start = length) THEN
             IF (_len > 128) THEN
                 _len := 0; // just drop packet if too long
             END_IF;
             xDone := true;
             result := _len;
-            Data.pRec := 0;
-            Data.pRead := 0;
             State := 0;
         ELSIF available() THEN
             digit := readByte();

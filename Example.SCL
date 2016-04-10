@@ -1,7 +1,7 @@
 (* Example Application Function Block calling MQTT *)
 FUNCTION_BLOCK FB66
 VAR_INPUT
-    conn : BOOL;	// Rise to Connect
+    con : BOOL;     // Rise to Connect
     pub : BOOL;		// Rise to Publish
     sub : BOOL;		// Rise to Subscribe
 END_VAR
@@ -13,16 +13,24 @@ VAR
 END_VAR
 BEGIN
 
-IF conn AND NOT fcon THEN
+// Automatic reconnect
+IF Data.ethConnected AND (Data._State < 0) THEN
     connect(id := 'CPU313C');
 END_IF;
-fcon := conn;
 
+// Manual connect. Make con high
+IF con AND NOT fcon THEN
+    connect(id := 'CPU313C');
+END_IF;
+fcon := con;
+
+// Make pub high to publish
 IF pub AND NOT fpub THEN
     publish(topic := 'SIEMENS hello!', retained := false);
 END_IF;
 fpub := pub;
 
+// Make sub high to subscribe
 IF sub AND NOT fsub THEN
     subscribe(topic := 'Q');
 END_IF;
