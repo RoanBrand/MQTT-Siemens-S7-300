@@ -2,16 +2,28 @@
 FUNCTION_BLOCK FB66
 VAR_INPUT
     con : BOOL;     // Rise to Connect
-    pub : BOOL;		// Rise to Publish
-    sub : BOOL;		// Rise to Subscribe
+    pub : BOOL;     // Rise to Publish
+    sub : BOOL;     // Rise to Subscribe
 END_VAR
 VAR_TEMP
     i : INT;
 END_VAR
 VAR
-	fcon, fpub, fsub : BOOL;
+    fcon, fpub, fsub : BOOL;
 END_VAR
 BEGIN
+
+// Publish to 'Q' topic to control outputs of PLC
+// First byte of payload (0-7)  -> Output num
+// Second byte (0 or 1) -> Switch output ON/OFF
+IF DB67.callback THEN
+    DB67.callback := false;
+    IF DB67.pubTopic = 'Q' THEN
+        IF DB67.payloadSize = 2 THEN
+            Q[124,BYTE_TO_INT(DB67.payload[0])] := BYTE_TO_BOOL(DB67.payload[1]);
+        END_IF;
+    END_IF;
+END_IF;
 
 // Automatic reconnect
 IF Data.ethConnected AND (Data._State < 0) THEN
@@ -46,7 +58,7 @@ VAR_TEMP
     // Temporary Variables
 END_VAR
 
-FB66.DB66();	// Example Application
-MQTT.DB67();	// MQTT Library loop (Must be called in every App)
+MQTT.DB67();    // MQTT Library loop (Must be called in every App)
+FB66.DB66();    // Example Application
 
 END_ORGANIZATION_BLOCK

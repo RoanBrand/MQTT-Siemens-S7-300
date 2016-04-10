@@ -8,22 +8,24 @@ END_FUNCTION
 (**************************************************************)
 
 FUNCTION_BLOCK MQTT
+VAR_IN_OUT
+    callback : BOOL;
+END_VAR
 VAR_TEMP
     i : INT;
 END_VAR
 VAR
     // MQTT Protocol State Control
-    intState, lastState : INT;			// State Machine
-    tcpRecByte : BYTE;					// Next incoming TCP byte
-    myPacketReader : PacketReader;		// MQTT PacketReader Instance
+    intState, lastState : INT;          // State Machine
+    tcpRecByte : BYTE;                  // Next incoming TCP byte
+    myPacketReader : PacketReader;      // MQTT PacketReader Instance
     msgId : INT;
     typeOfPacket : INT;
     runTimer : SFB4;
     resetTime : TIME;
     tl : INT;
-    inTopic : ARRAY[0..20] OF CHAR;
-    payload : INT;
-    payloadSize : INT;
+    paylPos : INT;
+    paylSize : INT;
 
     //debug
     recBufLeft : INT;
@@ -48,114 +50,12 @@ VAR
     cntrl_lastErrStatus : WORD;
     cntrl_res1, cntrl_res2 : DWORD;
 END_VAR
+VAR_OUTPUT
+    pubTopic : STRING;
+    pubTopicChar AT pubTopic : ARRAY[0..255] OF CHAR;
+    payload : ARRAY[0..255] OF BYTE;
+    payloadSize : INT;
 BEGIN
-runTimer(IN := true, PT := T#24D);
-Data.runTime := runTimer.ET;
-
-(* Loop *)
-CASE (Data._state) OF
-    -4..-1:	//(Globals.MQTT_DISCONNECTED):
-        lastState := Data._state;
-        IF ((Data.runTime - t#10s) > resetTime) AND NOT Data.ethConnected THEN
-        	resetTime := Data.runTime;
-        	AG_CNTRL(   ACT := 1,
-            			ID := 1,
-			            LADDR := W#16#0100,
-			            CMD := 2,
-			            DONE => cntrl_done,
-			            ERROR => cntrl_error,
-			            STATUS => cntrl_status,
-			            RESULT1 => cntrl_res1,
-			            RESULT2 => cntrl_res2
-			);
-		END_IF;
-    0: //Globals.MQTT_CONNECTING:
-        IF (Data._state <> lastState) THEN
-            intState := 0;
-            lastState := Data._state;
-        END_IF;
-        CASE (intState) OF
-            0 : // Wait for received packet start
-                IF ((Data.runTime - Data.lastInActivity) >= Globals.MQTT_SOCKET_TIMEOUT) THEN
-                    Data._state := Globals.MQTT_CONNECTION_TIMEOUT;
-                ELSIF available() THEN
-                    myPacketReader.iBegin := true;
-                    intState := 1;
-                END_IF;
-            1 :    // Read complete packet
-                IF (myPacketReader.xDone) THEN
-                    IF (myPacketReader.result = 4) THEN
-                        IF Data.buffer[3] = 0 THEN
-                            Data.lastInActivity := Data.runTime;
-                            Data.pingOutstanding := false;
-                            Data._state := Globals.MQTT_CONNECTED;
-                        ELSE
-                            Data._state := BYTE_TO_INT(Data.buffer[3]);
-                        END_IF;
-                    // ELSE maybe need equivalent/workaround to client->stop()
-                    END_IF;
-                END_IF;
-        END_CASE;
-    1: //Globals.MQTT_CONNECTED:
-        IF (Data._state <> lastState) THEN
-            intState := 0;
-            lastState := Data._state;
-        END_IF;
-        IF ((Data.runTime - Data.lastInActivity) > Globals.MQTT_KEEPALIVE) OR ((Data.runTime - Data.lastOutActivity) > Globals.MQTT_KEEPALIVE) THEN
-            IF (Data.pingOutstanding) THEN
-                Data._state := Globals.MQTT_CONNECTION_TIMEOUT;
-                // need recovery
-            ELSE
-                Data.buffer[0] := INT_TO_BYTE(Globals.MQTTPINGREQ);
-                Data.buffer[1] := 0;
-                sendTCP(offset := 0, size := 2);
-                Data.lastOutActivity := Data.runTime;
-                Data.lastInActivity := Data.lastOutActivity;
-                Data.pingOutstanding := true;
-            END_IF;
-        END_IF;
-        
-        CASE (intState) OF
-            0 :    // Wait for received packet start
-                IF available() THEN
-                    myPacketReader.lengthLength := 0;
-                    myPacketReader.iBegin := true;
-                    msgId := 0;
-                    intState := 1;
-                END_IF;
-            1 :    // Read complete packet
-                IF (myPacketReader.xDone) THEN
-                    IF (myPacketReader.result > 0) THEN
-                        
-                        Data.lastInActivity := Data.runTime;
-                        typeOfPacket := BYTE_TO_INT(Data.buffer[0] AND B#16#F0);
-                        
-                        IF (typeOfPacket = Globals.MQTTPUBLISH) THEN
-                            tl := WORD_TO_INT(SHL(IN := BYTE_TO_WORD(Data.buffer[myPacketReader.lengthLength+1]), N := 8)) + BYTE_TO_INT(Data.buffer[myPacketReader.lengthLength+2]);
-                            FOR i := 0 TO tl-1 DO
-                                inTopic[i] := BYTE_TO_CHAR(Data.buffer[myPacketReader.lengthLength+3+i]);
-                            END_FOR;
-                            inTopic[tl] := BYTE_TO_CHAR(B#16#00);
-                            payload := myPacketReader.lengthLength+3+tl;
-                            payloadSize := myPacketReader.result - myPacketReader.lengthLength -3-tl;
-                            
-                            // app
-                            IF inTopic[0] = 'Q' THEN
-                                IF Data.buffer[payload] = CHAR_TO_BYTE('A') THEN
-                                    q124.0 := NOT q124.0 ;
-                                END_IF;
-                            END_IF;
-                            
-                        ELSIF (typeOfPacket = Globals.MQTTPINGRESP) THEN
-                            Data.pingOutstanding := false;
-                        END_IF;
-                        
-                    END_IF;
-                    intState := 0;
-                END_IF;
-        END_CASE;
-END_CASE;
-
 (* TCP SENDING *)
 IF (Data.reqSend AND NOT snd_busy) THEN
     Data.reqSend := false;
@@ -241,4 +141,107 @@ END_IF;
 IF cntrl_error THEN
     cntrl_lastErrStatus := cntrl_status;
 END_IF;
+
+// Connection time
+runTimer(IN := true, PT := T#24D);
+Data.runTime := runTimer.ET;
+
+(* Control Loop *)
+CASE (Data._state) OF
+    -4..-1: //(Globals.MQTT_DISCONNECTED):
+        lastState := Data._state;
+        IF ((Data.runTime - t#10s) > resetTime) AND NOT Data.ethConnected THEN
+            resetTime := Data.runTime;
+            AG_CNTRL(   ACT := 1,
+                        ID := 1,
+                        LADDR := W#16#0100,
+                        CMD := 2,
+                        DONE => cntrl_done,
+                        ERROR => cntrl_error,
+                        STATUS => cntrl_status,
+                        RESULT1 => cntrl_res1,
+                        RESULT2 => cntrl_res2
+            );
+        END_IF;
+    0: //Globals.MQTT_CONNECTING:
+        IF (Data._state <> lastState) THEN
+            intState := 0;
+            lastState := Data._state;
+        END_IF;
+        CASE (intState) OF
+            0 : // Wait for received packet start
+                IF ((Data.runTime - Data.lastInActivity) >= Globals.MQTT_SOCKET_TIMEOUT) THEN
+                    Data._state := Globals.MQTT_CONNECTION_TIMEOUT;
+                ELSIF available() THEN
+                    myPacketReader.iBegin := true;
+                    intState := 1;
+                END_IF;
+            1 :    // Read complete packet
+                IF (myPacketReader.xDone) THEN
+                    IF (myPacketReader.result = 4) THEN
+                        IF Data.buffer[3] = 0 THEN
+                            Data.lastInActivity := Data.runTime;
+                            Data.pingOutstanding := false;
+                            Data._state := Globals.MQTT_CONNECTED;
+                        ELSE
+                            Data._state := BYTE_TO_INT(Data.buffer[3]);
+                        END_IF;
+                    // ELSE maybe need equivalent/workaround to client->stop()
+                    END_IF;
+                END_IF;
+        END_CASE;
+    1: //Globals.MQTT_CONNECTED:
+        IF (Data._state <> lastState) THEN
+            intState := 0;
+            lastState := Data._state;
+        END_IF;
+        IF ((Data.runTime - Data.lastInActivity) > Globals.MQTT_KEEPALIVE) OR ((Data.runTime - Data.lastOutActivity) > Globals.MQTT_KEEPALIVE) THEN
+            IF (Data.pingOutstanding) THEN
+                Data._state := Globals.MQTT_CONNECTION_TIMEOUT;
+                // need recovery
+            ELSE
+                Data.buffer[0] := INT_TO_BYTE(Globals.MQTTPINGREQ);
+                Data.buffer[1] := 0;
+                sendTCP(offset := 0, size := 2);
+                Data.lastOutActivity := Data.runTime;
+                Data.lastInActivity := Data.lastOutActivity;
+                Data.pingOutstanding := true;
+            END_IF;
+        END_IF;
+        
+        CASE (intState) OF
+            0 :    // Wait for received packet start
+                IF available() THEN
+                    myPacketReader.iBegin := true;
+                    msgId := 0;
+                    intState := 1;
+                END_IF;
+            1 :    // Read complete packet
+                IF (myPacketReader.xDone) THEN
+                    IF (myPacketReader.result > 0) THEN
+                        Data.lastInActivity := Data.runTime;
+                        typeOfPacket := BYTE_TO_INT(Data.buffer[0] AND B#16#F0);
+                        
+                        IF (typeOfPacket = Globals.MQTTPUBLISH) THEN
+                            tl := WORD_TO_INT(SHL(IN := BYTE_TO_WORD(Data.buffer[myPacketReader.lengthLength+1]), N := 8)) + BYTE_TO_INT(Data.buffer[myPacketReader.lengthLength+2]);
+                            FOR i := 0 TO tl-1 DO
+                                pubTopicChar[i+2] := BYTE_TO_CHAR(Data.buffer[myPacketReader.lengthLength+3+i]);
+                            END_FOR;
+                            pubTopicChar[1] := INT_TO_CHAR(tl);
+                            paylPos := myPacketReader.lengthLength+3+tl;
+                            paylSize := myPacketReader.result - paylPos;
+                            FOR i := 0 TO paylSize-1 DO
+                                payload[i] := Data.buffer[paylPos+i];
+                            END_FOR;
+                            payloadSize := paylSize;
+                            callback := true;
+                        ELSIF (typeOfPacket = Globals.MQTTPINGRESP) THEN
+                            Data.pingOutstanding := false;
+                        END_IF;
+                        
+                    END_IF;
+                    intState := 0;
+                END_IF;
+        END_CASE;
+END_CASE;
 END_FUNCTION_BLOCK

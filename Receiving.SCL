@@ -35,7 +35,6 @@ END_FUNCTION
 FUNCTION_BLOCK PacketReader
 VAR_IN_OUT
     iBegin : BOOL;
-    lengthLength : INT;
 END_VAR
 VAR
     _len : INT;
@@ -43,7 +42,6 @@ VAR
     multiplier : DINT;
     length : DINT;
     digit : BYTE;
-    skip : INT;
     start : INT;
 
     State : INT;
@@ -54,6 +52,7 @@ END_VAR
 VAR_OUTPUT
     xDone : BOOL;
     result : INT;
+    lengthLength : INT;
 END_VAR
 BEGIN
 CASE (State) OF
@@ -81,7 +80,6 @@ CASE (State) OF
             multiplier := 1;
             length := 0;
             digit := B#16#00;
-            skip := 0;
             start := 0;
             State := 2;
         ELSE
@@ -96,7 +94,7 @@ CASE (State) OF
             _len := _len + 1;
             length := length + (BYTE_TO_DINT(digit AND B#16#7F) * multiplier);
             multiplier := multiplier * 128;
-            IF (BYTE_TO_INT(digit AND B#16#80) = 0) THEN
+            IF (digit AND B#16#80) = B#16#00 THEN
                 lengthLength := _len - 1;
                 IF (isPublish) THEN
                     State := 3;
@@ -121,11 +119,7 @@ CASE (State) OF
         oldState := 4;
         IF available() THEN
             _len := readByteToBuf(pos := _len);
-            skip := WORD_TO_INT(SHL(IN := BYTE_TO_WORD(Data.buffer[lengthLength+1]), N := 8)) + WORD_TO_INT(Data.buffer[lengthLength+2]);
             start := 2;
-            IF BYTE_TO_INT(Data.buffer[0] AND INT_TO_BYTE(Globals.MQTTQOS1)) > 0 THEN
-                skip := skip + 2;
-            END_IF;
             State := 5;
         ELSE
             previousTime := Data.runTime;
