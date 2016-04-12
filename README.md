@@ -5,10 +5,25 @@ This started as a port of [knolleary's MQTT library](https://github.com/knollear
 
 *Work in Progress!*
 
+# Purpose and Possibilities
+MQTT is a popular communications protocol in the IoT space. Its demand on most types of networks and CPUs make it a good option for M2M applications. MQTT enabled devices can easily be configured to send a message anywhere in the world.
+
+##### What does this mean for PLCs & Industrial Automation?
+MQTT will enable a PLC to connect to the cloud without using proprietary hardware or protocols. PLC programmers can use it to build customized programs that send info to a web server, log plant data, and communicate with any other MQTT client device.
+Developers can use it to build customized dashboards (physical, website, or mobile device), providing valuable data for analytics and business. MQTT enabled IO could serve as an inexpensive alternative for the PLC. (although not recommended for mission critical IO and for safety reasons)
+
 ### Current State:
 At this time, this is working for CPU313C-2DP with CP343-1 Lean Ethernet module.
 I am locally connecting to a HiveMQ broker and controlling PLC outputs using published messages.
 I can also publish a hard coded message from the PLC.
+##### Currently Unsupported:
+
+- QoS 1 & 2
+- MQTT Username & Password
+- Will
+- Unsubscribe
+-
+
 
 # Requirements
 It should work with most S7-300 CPU's.
@@ -18,9 +33,10 @@ This code is written in Step7 SCL v5.3 SP1. It probably needs modification for i
 # How to Use
 The following needs to be setup in you project in Simatic Manager:
 
-1. The tcp connection to the broker must be set up in NetPro (IP Address + Port: 1883)
-2. You must call the MQTT function block in your OB1 program loop.
-2. Your project's symbol list needs appropriate block numbers assigned to them, mine is:
+1. Setup your CP unit in HW Config with a client IP.
+2. The tcp connection to the broker must be set up in NetPro. (IP Address & Port: 1883)
+3. You must call the MQTT function block in your OB1 program loop.
+4. In Symbols, assign the following symbolic block names with appropriate block numbers assigned to them, mine is:
 
 - MQTT   		: FB1
 - PacketReader	: FB2
@@ -43,11 +59,13 @@ Included is an example application function block (FB66) that is typically calle
 Inputs for this block can trigger a MQTT broker connect, publish a message or subscribe to a MQTT channel.
 
 
-
-
 ### Notes
-Porting C++ to Siemens SCL has taught many differences between systems. One major difference is the inability to make blocking calls in SCL.
-The reason for this is a PLC is a real-time system. What this means is the entire program from the first to last line *must* complete in a certain amount of time. (typically <10ms)
+Porting C++ to Siemens SCL has taught many differences between systems. Differences include:
+
+- The inability to make blocking calls in SCL.
+- No dynamically allocated memory.
+
+The reason for this is a PLC is a real-time system. One consequence is that entire program code from the first to last line *must* complete in a certain amount of time. (Typically <10ms)
 The workaround I make is using a FB with a state machine that can wait for a procedure to finish before moving on.
 
 After working with SCL for a while it feels that the language is primitive in many ways in comparison with most PC languages.
