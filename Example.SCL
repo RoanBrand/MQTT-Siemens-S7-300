@@ -9,44 +9,50 @@ VAR_TEMP
     i : INT;
 END_VAR
 VAR
-    fcon, fpub, fsub : BOOL;
+    fcon, fpub, fsub : BOOL; // flags used for rising trigger detection
+
+    publishData : ARRAY[0..31] OF BYTE;
 END_VAR
 BEGIN
+(* USER INPUT CONTROLS *)
 
-// Publish to 'Q' topic to control outputs of PLC
-// First byte of payload (0-7)  -> Output num
-// Second byte (0 or 1) -> Switch output ON/OFF
-IF DB67.callback THEN
-    DB67.callback := false;
-    IF DB67.pubTopic = 'Q' THEN
-        IF DB67.payloadSize = 2 THEN
-            Q[124,BYTE_TO_INT(DB67.payload[0])] := BYTE_TO_BOOL(DB67.payload[1]);
+    // Manual connect. Make con high
+    IF con AND NOT fcon THEN
+        connect(id := 'CPU313C');
+    END_IF;
+    fcon := con;
+
+    // Make pub high to publish
+    IF pub AND NOT fpub THEN
+        publish(topic := 'SIEMENSTOPIC', dataIn := publishData[0], dataSize := 16, retained := false);
+    END_IF;
+    fpub := pub;
+
+    // Make sub high to subscribe
+    IF sub AND NOT fsub THEN
+        subscribe(topic := 'Q');
+    END_IF;
+    fsub := sub;
+
+(* OTHER *)
+
+    // Automatic reconnect example if needed
+    IF Data.ethConnected AND (Data._State < 0) THEN
+        connect(id := 'CPU313C');
+    END_IF;
+
+    // Publish to 'Q' topic to control first output byte of PLC
+    // Use sub command above to subscribe first
+    // First byte of payload (0-7)  -> Output num
+    // Second byte (0 or 1) -> Switch output ON/OFF
+    IF DB67.callback THEN
+        DB67.callback := false;
+        IF DB67.pubTopic = 'Q' THEN
+            IF DB67.payloadSize = 2 THEN
+                Q[0,BYTE_TO_INT(DB67.payload[0])] := BYTE_TO_BOOL(DB67.payload[1]);
+            END_IF;
         END_IF;
     END_IF;
-END_IF;
-
-// Automatic reconnect
-IF Data.ethConnected AND (Data._State < 0) THEN
-    connect(id := 'CPU313C');
-END_IF;
-
-// Manual connect. Make con high
-IF con AND NOT fcon THEN
-    connect(id := 'CPU313C');
-END_IF;
-fcon := con;
-
-// Make pub high to publish
-IF pub AND NOT fpub THEN
-    publish(topic := 'SIEMENS hello!', retained := false);
-END_IF;
-fpub := pub;
-
-// Make sub high to subscribe
-IF sub AND NOT fsub THEN
-    subscribe(topic := 'Q');
-END_IF;
-fsub := sub;
 
 END_FUNCTION_BLOCK
 

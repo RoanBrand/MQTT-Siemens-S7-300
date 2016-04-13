@@ -6,7 +6,7 @@ This started as a port of [knolleary's MQTT library](https://github.com/knollear
 *Work in Progress!*
 
 # Purpose and Possibilities
-MQTT is a popular communications protocol in the IoT space. Its demand on most types of networks and CPUs make it a good option for M2M applications. MQTT enabled devices can easily be configured to send a message anywhere in the world.
+MQTT is a popular communications protocol in the IoT space. Its demand on most types of networks and CPUs make it a good option for M2M applications. MQTT devices can easily be utilized to send a message anywhere in the world.
 
 ##### What does this mean for PLCs & Industrial Automation?
 MQTT will enable a PLC to connect to the cloud without using proprietary hardware or protocols. PLC programmers can use it to build customized programs that send info to a web server, log plant data, and communicate with any other MQTT client device.
@@ -15,14 +15,14 @@ Developers can use it to build customized dashboards (physical, website, or mobi
 ### Current State:
 At this time, this is working for CPU313C-2DP with CP343-1 Lean Ethernet module.
 I am locally connecting to a HiveMQ broker and controlling PLC outputs using published messages.
-I can also publish a hard coded message from the PLC.
+I can also publish an array of bytes from the PLC.
 ##### Currently Unsupported:
 
 - QoS 1 & 2
 - MQTT Username & Password
 - Will
 - Unsubscribe
--
+- ...
 
 
 # Requirements
@@ -65,7 +65,7 @@ Porting C++ to Siemens SCL has taught many differences between systems. Differen
 - The inability to make blocking calls in SCL.
 - No dynamically allocated memory.
 
-The reason for this is a PLC is a real-time system. One consequence is that entire program code from the first to last line *must* complete in a certain amount of time. (Typically <10ms)
+One reason for this is a PLC is a real-time system. A consequence is that the entire program code, from the first to last line, *must* complete in a certain amount of time. (Typically <10ms)
 The workaround I make is using a FB with a state machine that can wait for a procedure to finish before moving on.
 
 After working with SCL for a while it feels that the language is primitive in many ways in comparison with most PC languages.

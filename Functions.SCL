@@ -1,6 +1,21 @@
+TYPE UDT100
+TITLE = DISSASEMBLED ANYPOINTER
+    STRUCT
+        S7Code : BYTE; // Code for S7 = 0x10
+        DataType : BYTE; // Code for data type = 0x02 = byte
+        Length : INT; // Repetition factor = Send/receive length
+        DBNumber : INT; // Data block Number
+        MemoryArea : BYTE; // Specified memory area = 0x84 = data block
+        ByteAddressMSB : BYTE; // Byte address most significant bits
+        ByteAddressLSB : WORD; // Byte address least significant bits
+    END_STRUCT
+END_TYPE
+
 FUNCTION publish : VOID
 VAR_INPUT
     topic : STRING[50];
+    dataIn : ANY;
+    dataSize : INT;
     retained : BOOL;
 END_VAR
 VAR_TEMP
@@ -8,14 +23,23 @@ VAR_TEMP
     i : INT;
     header : BYTE;
     holdstring : STRING[50];
+    tdata : ANY;
+    pdata AT tdata : UDT100;
+    ret : INT;
 END_VAR
 BEGIN
+tdata := dataIn;
 holdstring := topic;
 length := 5;
 length := writeString(iStr := holdstring, pos := length);
-FOR i := 0 TO 30 DO
-    Data.buffer[length] := INT_TO_BYTE(65 + i);
+FOR i := 0 TO dataSize-1 DO
+    ret := BLKMOV(SRCBLK := tdata, DSTBLK := Data.buffer[length]);
+    IF ret <> 0 THEN
+        m23.2 := true;
+        //return
+    END_IF;
     length := length + 1;
+    pdata.ByteAddressLSB := INT_TO_WORD(WORD_TO_INT(pdata.ByteAddressLSB) + 8);
 END_FOR;
 header := INT_TO_BYTE(Globals.MQTTPUBLISH);
 IF retained THEN
