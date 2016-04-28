@@ -13,6 +13,7 @@ VAR_IN_OUT
 END_VAR
 VAR_TEMP
     i : INT;
+    intTemp : INT;
 END_VAR
 VAR
     // MQTT Protocol State Control
@@ -49,19 +50,43 @@ VAR
     cntrl_status : WORD;
     cntrl_lastErrStatus : WORD;
     cntrl_res1, cntrl_res2 : DWORD;
+    
+    NET_CON: TCON;
+    NET_DISCON: TDISCON;
+    NET_SEND: TSEND;
+    NET_RCV: TRCV;
+    
+END_VAR
+VAR_INPUT
+    net_config : NET_CONFIG; // UDT with network configuration as input
 END_VAR
 VAR_OUTPUT
     pubTopic : STRING;
     pubTopicChar AT pubTopic : ARRAY[0..255] OF CHAR;
     payload : ARRAY[0..255] OF BYTE;
     payloadSize : INT;
+    
+END_VAR
+
 BEGIN
+
+(* Check if CPU had a reset *)
+intTemp := RD_SINFO (TOP_SI := TOP_SI, START_UP_SI := START_UP_SI);
+
+(* reset last_time on system startup *)
+IF TOP_SI.EV_NUM <> 3 THEN 
+    // MB60 := TOP_SI.EV_NUM;
+    intNextCommand := NOTHING;
+    blnConnected := FALSE;    
+END_IF;
+
 (* TCP SENDING *)
 IF (Data.reqSend AND NOT snd_busy) THEN
     Data.reqSend := false;
     act_send := true;
 END_IF;
 
+(*
 AG_SEND(    ACT := act_send,
             ID := 1,
             LADDR := W#16#0100,
@@ -71,6 +96,7 @@ AG_SEND(    ACT := act_send,
             ERROR => xSendError,
             STATUS => wSendState
 );
+*)
 
 IF (act_send) THEN
     act_send := false;
@@ -87,6 +113,7 @@ IF (xSendError AND NOT xSendDone) THEN
 END_IF;
 
 (* TCP RECEIVING *)
+(*
 AG_RECV(    ID := 1,
             LADDR := W#16#0100,
             RECV := tcpRecByte,
@@ -95,6 +122,8 @@ AG_RECV(    ID := 1,
             STATUS => wReceiveState,
             LEN => iLength
 );
+*)
+
 
 IF xReceiveError THEN
     last_rec_err := wReceiveState;
@@ -125,6 +154,7 @@ ELSE
 END_IF;
 
 (* TCP CONTROL STATUS *)
+(*
 AG_CNTRL(   ACT := 1,
             ID := 1,
             LADDR := W#16#0100,
@@ -135,6 +165,8 @@ AG_CNTRL(   ACT := 1,
             RESULT1 => cntrl_res1,
             RESULT2 => cntrl_res2
 );
+*)
+
 IF cntrl_done AND NOT cntrl_error THEN
     Data.ethConnected := ((DWORD_TO_WORD(cntrl_res1) AND W#16#7000) = W#16#7000);
 END_IF;
@@ -152,6 +184,8 @@ CASE (Data._state) OF
         lastState := Data._state;
         IF ((Data.runTime - t#10s) > resetTime) AND NOT Data.ethConnected THEN
             resetTime := Data.runTime;
+            
+            (*
             AG_CNTRL(   ACT := 1,
                         ID := 1,
                         LADDR := W#16#0100,
@@ -162,6 +196,8 @@ CASE (Data._state) OF
                         RESULT1 => cntrl_res1,
                         RESULT2 => cntrl_res2
             );
+            *)
+            
         END_IF;
     0: //Globals.MQTT_CONNECTING:
         IF (Data._state <> lastState) THEN

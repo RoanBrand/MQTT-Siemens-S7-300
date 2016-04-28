@@ -1,0 +1,31 @@
+
+TYPE NET_CONFIG
+
+TITLE = Connection Parameters FOR TCON
+AUTHOR : SIMATIC
+FAMILY : COMM
+NAME : TCON_PAR
+VERSION : 2.1
+
+    STRUCT
+        // Typbeschreibung
+        block_length        : WORD  := W#16#40;    //#!PC_FMS!#
+        id                  : WORD  := W#16#1;    
+        connection_type     : BYTE  := B#16#11;    
+        active_est          : BOOL  := TRUE;    
+        local_device_id     : BYTE  := B#16#2;    
+        local_tsap_id_len   : BYTE ;    
+        rem_subnet_id_len   : BYTE ;    
+        rem_staddr_len      : BYTE  := B#16#4;    
+        rem_tsap_id_len     : BYTE  := B#16#2;    
+        next_staddr_len     : BYTE ;    
+        local_tsap_id       : ARRAY  [1 .. 16 ] OF BYTE  := B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0;    
+        rem_subnet_id       : ARRAY  [1 .. 6 ] OF BYTE  := B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0;    
+        rem_staddr          : ARRAY  [1 .. 6 ] OF //192.168.10.1
+                              BYTE  := B#16#C0, B#16#A8, B#16#A, B#16#1, B#16#0, B#16#0;    
+        rem_tsap_id         : ARRAY  [1 .. 16 ] OF //Port 2000
+                              BYTE  := B#16#7, B#16#D0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0;    
+        next_staddr         : ARRAY  [1 .. 6 ] OF BYTE  := B#16#0, B#16#0, B#16#0, B#16#0, B#16#0, B#16#0;    
+        spare               : WORD ;    //#!PC_FMS!#              
+    END_STRUCT
+END_TYPE

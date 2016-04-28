@@ -1,5 +1,5 @@
 (* Example Application Function Block calling MQTT *)
-FUNCTION_BLOCK FB66
+FUNCTION_BLOCK FB70
 VAR_INPUT
     con : BOOL;     // Rise to Connect
     pub : BOOL;     // Rise to Publish
@@ -45,11 +45,11 @@ BEGIN
     // Use sub command above to subscribe first
     // First byte of payload (0-7)  -> Output num
     // Second byte (0 or 1) -> Switch output ON/OFF
-    IF DB67.callback THEN
-        DB67.callback := false;
-        IF DB67.pubTopic = 'Q' THEN
-            IF DB67.payloadSize = 2 THEN
-                Q[0,BYTE_TO_INT(DB67.payload[0])] := BYTE_TO_BOOL(DB67.payload[1]);
+    IF DB71.callback THEN
+        DB71.callback := false;
+        IF DB71.pubTopic = 'Q' THEN
+            IF DB71.payloadSize = 2 THEN
+                ;//Q[0,BYTE_TO_INT(DB67.payload[0])] := BYTE_TO_BOOL(DB67.payload[1]);
             END_IF;
         END_IF;
     END_IF;
@@ -64,7 +64,7 @@ VAR_TEMP
     // Temporary Variables
 END_VAR
 
-MQTT.DB67();    // MQTT Library loop (Must be called in every App)
-FB66.DB66();    // Example Application
+MQTT.DB71();    // MQTT Library loop (Must be called in every App)
+FB70.DB70();    // Example Application
 
 END_ORGANIZATION_BLOCK
