@@ -1,3 +1,7 @@
+(* ToDo:
+- check if tcp connection was lost, reinit tcp connection
+*)
+
 FUNCTION connected : BOOL
 BEGIN
 connected := Data.ethConnected;
@@ -14,6 +18,27 @@ END_VAR
 VAR_TEMP
     i : INT;
     intTemp : INT;
+       TOP_SI: STRUCT
+        EV_CLASS: BYTE;
+        EV_NUM:   BYTE;
+        PRIORITY: BYTE;
+        NUM:      BYTE;
+        TYP2_3:   BYTE;
+        TYP1:     BYTE;
+        ZI1:      WORD;
+        ZI2_3:    DWORD;
+   END_STRUCT;
+
+   START_UP_SI: STRUCT
+        EV_CLASS: BYTE;
+        EV_NUM:   BYTE;
+        PRIORITY: BYTE;
+        NUM:      BYTE;
+        TYP2_3:   BYTE;
+        TYP1:     BYTE;
+        ZI1:      WORD;
+        ZI2_3:    DWORD;
+   END_STRUCT;   
 END_VAR
 VAR
     // MQTT Protocol State Control
@@ -34,8 +59,8 @@ VAR
     // Send TCP State
     xSendDone, xSendError : BOOL;
     wSendState : WORD;
-    act_send : bool;
-    snd_busy : bool;
+    act_send : BOOL;
+    snd_busy : BOOL;
     last_snd_err: WORD;
     
     // Receive TCP State
@@ -50,6 +75,13 @@ VAR
     cntrl_status : WORD;
     cntrl_lastErrStatus : WORD;
     cntrl_res1, cntrl_res2 : DWORD;
+    
+    net_init : BOOL := false;
+    net_connect : BOOL := false;
+    net_isConnected : BOOL := false;
+    
+    net_error: BOOL := false;
+    net_status: WORD;
     
     NET_CON: TCON;
     NET_DISCON: TDISCON;
@@ -73,211 +105,282 @@ BEGIN
 (* Check if CPU had a reset *)
 intTemp := RD_SINFO (TOP_SI := TOP_SI, START_UP_SI := START_UP_SI);
 
-(* reset last_time on system startup *)
-IF TOP_SI.EV_NUM <> 3 THEN 
-    // MB60 := TOP_SI.EV_NUM;
-    intNextCommand := NOTHING;
-    blnConnected := FALSE;    
+(* trigger network initialization on system startup *)
+IF TOP_SI.EV_NUM <> 3 THEN
+    net_init := true;
+    net_connect := false;
+    net_isConnected := false;
 END_IF;
 
-(* TCP SENDING *)
-IF (Data.reqSend AND NOT snd_busy) THEN
-    Data.reqSend := false;
-    act_send := true;
+(* Initialize TCP connection *)
+IF net_connect = true THEN
+    NET_CON(REQ := true // IN: BOOL
+               ,ID := W#16#1 // IN: WORD
+               ,CONNECT := net_config // INOUT: ANY
+               ); 
+      net_isConnected := NET_CON.DONE; // OUT: BOOL
+       net_error := NET_CON.ERROR; // OUT: BOOL
+       net_status := NET_CON.STATUS; // OUT: WORD
+     
+     IF (net_status = W#16#0) THEN
+        net_connect := false;
+     END_IF;
 END_IF;
 
-(*
-AG_SEND(    ACT := act_send,
-            ID := 1,
-            LADDR := W#16#0100,
-            SEND := Data.tcpSendBuf,
-            LEN := Data.sendSize,
-            DONE => xSendDone,
-            ERROR => xSendError,
-            STATUS => wSendState
-);
-*)
-
-IF (act_send) THEN
-    act_send := false;
-    snd_busy := true;
+(* Initialize all Txxx Functions because of raising edge for REQ input *)
+IF net_init = true THEN
+    NET_CON(REQ :=  false // IN: BOOL
+                       ,ID := W#16#1 // IN: WORD
+                       ,CONNECT := net_config // INOUT: ANY
+                       ); 
+    
+    NET_SEND(REQ := false // IN: BOOL
+                ,ID := W#16#1 // IN: WORD
+                ,LEN :=  0// IN: INT
+                ,DATA := Data.tcpSendBuf // INOUT: ANY
+                ); 
+    
+    NET_RCV(EN_R := false // IN: BOOL
+               ,ID := W#16#1 // IN: WORD
+               ,LEN := 0 // IN: INT
+               ,DATA := tcpRecByte // INOUT: ANY
+               ); 
+     
+     NET_DISCON(REQ := false // IN: BOOL
+                   ,ID := W#16#1 // IN: WORD
+                   ); 
+      
+    net_init := false;
+    net_connect := true;
 END_IF;
 
-IF (xSendDone AND snd_busy) THEN
-    snd_busy := false;
-END_IF;
 
-IF (xSendError AND NOT xSendDone) THEN
-    last_snd_err := wSendState;
-    snd_busy := false;
-END_IF;
-
-(* TCP RECEIVING *)
-(*
-AG_RECV(    ID := 1,
-            LADDR := W#16#0100,
-            RECV := tcpRecByte,
-            NDR => xNewDataReceived,
-            ERROR => xReceiveError,
-            STATUS => wReceiveState,
-            LEN => iLength
-);
-*)
-
-
-IF xReceiveError THEN
-    last_rec_err := wReceiveState;
-END_IF;
-
-IF xNewDataReceived THEN
-    IF Data.RecBufFull THEN
-        m33.1 := true;
-    ELSE
-        Data.tcpRecBuf[Data.pRec] := tcpRecByte;
-        Data.pRec := Data.pRec + 1;
-        IF (Data.pRec >= 256) THEN
-            Data.pRec := 0;
-        END_IF;
-        IF (Data.pRec = Data.pRead) THEN
-            Data.RecBufFull := true;
-        END_IF;
+IF net_isConnected = true THEN
+    
+    (* TCP SENDING *)
+    IF (Data.reqSend AND NOT snd_busy) THEN
+        Data.reqSend := false;
+        act_send := true;
     END_IF;
-END_IF;
-
-myPacketReader();
-
-//debug
-IF (Data.pRec >= Data.pRead) THEN
-    recBufLeft := 256 - (Data.pRec - Data.pRead);
-ELSE
-    recBufLeft := 256 - (Data.pRead - Data.pRec);
-END_IF;
-
-(* TCP CONTROL STATUS *)
-(*
-AG_CNTRL(   ACT := 1,
-            ID := 1,
-            LADDR := W#16#0100,
-            CMD := 1,
-            DONE => cntrl_done,
-            ERROR => cntrl_error,
-            STATUS => cntrl_status,
-            RESULT1 => cntrl_res1,
-            RESULT2 => cntrl_res2
-);
-*)
-
-IF cntrl_done AND NOT cntrl_error THEN
-    Data.ethConnected := ((DWORD_TO_WORD(cntrl_res1) AND W#16#7000) = W#16#7000);
-END_IF;
-IF cntrl_error THEN
-    cntrl_lastErrStatus := cntrl_status;
-END_IF;
-
-// Connection time
-runTimer(IN := true, PT := T#24D);
-Data.runTime := runTimer.ET;
-
-(* Control Loop *)
-CASE (Data._state) OF
-    -4..-1: //(Globals.MQTT_DISCONNECTED):
-        lastState := Data._state;
-        IF ((Data.runTime - t#10s) > resetTime) AND NOT Data.ethConnected THEN
-            resetTime := Data.runTime;
-            
-            (*
-            AG_CNTRL(   ACT := 1,
-                        ID := 1,
-                        LADDR := W#16#0100,
-                        CMD := 2,
-                        DONE => cntrl_done,
-                        ERROR => cntrl_error,
-                        STATUS => cntrl_status,
-                        RESULT1 => cntrl_res1,
-                        RESULT2 => cntrl_res2
-            );
-            *)
-            
-        END_IF;
-    0: //Globals.MQTT_CONNECTING:
-        IF (Data._state <> lastState) THEN
-            intState := 0;
-            lastState := Data._state;
-        END_IF;
-        CASE (intState) OF
-            0 : // Wait for received packet start
-                IF ((Data.runTime - Data.lastInActivity) >= Globals.MQTT_SOCKET_TIMEOUT) THEN
-                    Data._state := Globals.MQTT_CONNECTION_TIMEOUT;
-                ELSIF available() THEN
-                    myPacketReader.iBegin := true;
-                    intState := 1;
-                END_IF;
-            1 :    // Read complete packet
-                IF (myPacketReader.xDone) THEN
-                    IF (myPacketReader.result = 4) THEN
-                        IF Data.buffer[3] = 0 THEN
-                            Data.lastInActivity := Data.runTime;
-                            Data.pingOutstanding := false;
-                            Data._state := Globals.MQTT_CONNECTED;
-                        ELSE
-                            Data._state := BYTE_TO_INT(Data.buffer[3]);
-                        END_IF;
-                    // ELSE maybe need equivalent/workaround to client->stop()
-                    END_IF;
-                END_IF;
-        END_CASE;
-    1: //Globals.MQTT_CONNECTED:
-        IF (Data._state <> lastState) THEN
-            intState := 0;
-            lastState := Data._state;
-        END_IF;
-        IF ((Data.runTime - Data.lastInActivity) > Globals.MQTT_KEEPALIVE) OR ((Data.runTime - Data.lastOutActivity) > Globals.MQTT_KEEPALIVE) THEN
-            IF (Data.pingOutstanding) THEN
-                Data._state := Globals.MQTT_CONNECTION_TIMEOUT;
-                // need recovery
-            ELSE
-                Data.buffer[0] := INT_TO_BYTE(Globals.MQTTPINGREQ);
-                Data.buffer[1] := 0;
-                sendTCP(offset := 0, size := 2);
-                Data.lastOutActivity := Data.runTime;
-                Data.lastInActivity := Data.lastOutActivity;
-                Data.pingOutstanding := true;
+    
+    NET_SEND(REQ :=  act_send // IN: BOOL
+                ,ID :=  W#16#1// IN: WORD
+                ,LEN :=  Data.sendSize // IN: INT
+                ,DATA := Data.tcpSendBuf // INOUT: ANY
+                ); 
+      xSendDone := NET_SEND.DONE; // OUT: BOOL
+      xSendError := NET_SEND.ERROR; // OUT: BOOL
+      wSendState := NET_SEND.STATUS; // OUT: WORD
+     
+    (*
+    AG_SEND(    ACT := act_send,
+                ID := 1,
+                LADDR := W#16#0100,
+                SEND := Data.tcpSendBuf,
+                LEN := Data.sendSize,
+                DONE => xSendDone,
+                ERROR => xSendError,
+                STATUS => wSendState
+    );
+    *)
+    
+    IF (act_send) THEN
+        act_send := false;
+        snd_busy := true;
+    END_IF;
+    
+    IF (xSendDone AND snd_busy) THEN
+        snd_busy := false;
+    END_IF;
+    
+    IF (xSendError AND NOT xSendDone) THEN
+        last_snd_err := wSendState;
+        snd_busy := false;
+    END_IF;
+    
+    (* TCP RECEIVING *)
+    
+    NET_RCV(EN_R := true // IN: BOOL
+               ,ID := W#16#1 // IN: WORD
+               ,LEN := iLength // IN: INT
+               ,DATA := tcpRecByte // INOUT: ANY
+               ); 
+      xNewDataReceived := NET_RCV.NDR; // OUT: BOOL
+      xReceiveError := NET_RCV.ERROR; // OUT: BOOL
+      wReceiveState := NET_RCV.STATUS; // OUT: WORD
+      iLength := NET_RCV.RCVD_LEN; // OUT: INT
+     
+    (*
+    AG_RECV(    ID := 1,
+                LADDR := W#16#0100,
+                RECV := tcpRecByte,
+                NDR => xNewDataReceived,
+                ERROR => xReceiveError,
+                STATUS => wReceiveState,
+                LEN => iLength
+    );
+    *)
+    
+    
+    IF xReceiveError THEN
+        last_rec_err := wReceiveState;
+    END_IF;
+    
+    IF xNewDataReceived THEN
+        IF Data.RecBufFull THEN
+            m33.1 := true;
+        ELSE
+            Data.tcpRecBuf[Data.pRec] := tcpRecByte;
+            Data.pRec := Data.pRec + 1;
+            IF (Data.pRec >= 256) THEN
+                Data.pRec := 0;
+            END_IF;
+            IF (Data.pRec = Data.pRead) THEN
+                Data.RecBufFull := true;
             END_IF;
         END_IF;
-        
-        CASE (intState) OF
-            0 :    // Wait for received packet start
-                IF available() THEN
-                    myPacketReader.iBegin := true;
-                    msgId := 0;
-                    intState := 1;
-                END_IF;
-            1 :    // Read complete packet
-                IF (myPacketReader.xDone) THEN
-                    IF (myPacketReader.result > 0) THEN
-                        Data.lastInActivity := Data.runTime;
-                        typeOfPacket := BYTE_TO_INT(Data.buffer[0] AND B#16#F0);
-                        
-                        IF (typeOfPacket = Globals.MQTTPUBLISH) THEN
-                            tl := WORD_TO_INT(SHL(IN := BYTE_TO_WORD(Data.buffer[myPacketReader.lengthLength+1]), N := 8)) + BYTE_TO_INT(Data.buffer[myPacketReader.lengthLength+2]);
-                            FOR i := 0 TO tl-1 DO
-                                pubTopicChar[i+2] := BYTE_TO_CHAR(Data.buffer[myPacketReader.lengthLength+3+i]);
-                            END_FOR;
-                            pubTopicChar[1] := INT_TO_CHAR(tl);
-                            paylPos := myPacketReader.lengthLength+3+tl;
-                            paylSize := myPacketReader.result - paylPos;
-                            FOR i := 0 TO paylSize-1 DO
-                                payload[i] := Data.buffer[paylPos+i];
-                            END_FOR;
-                            payloadSize := paylSize;
-                            callback := true;
-                        ELSIF (typeOfPacket = Globals.MQTTPINGRESP) THEN
-                            Data.pingOutstanding := false;
-                        END_IF;
-                        
+    END_IF;
+    
+    myPacketReader();
+    
+    //debug
+    IF (Data.pRec >= Data.pRead) THEN
+        recBufLeft := 256 - (Data.pRec - Data.pRead);
+    ELSE
+        recBufLeft := 256 - (Data.pRead - Data.pRec);
+    END_IF;
+    
+    (*
+    (* TCP CONTROL STATUS *)
+    (*
+    AG_CNTRL(   ACT := 1,
+                ID := 1,
+                LADDR := W#16#0100,
+                CMD := 1,
+                DONE => cntrl_done,
+                ERROR => cntrl_error,
+                STATUS => cntrl_status,
+                RESULT1 => cntrl_res1,
+                RESULT2 => cntrl_res2
+    );
+    *)
+    
+    IF cntrl_done AND NOT cntrl_error THEN
+        Data.ethConnected := ((DWORD_TO_WORD(cntrl_res1) AND W#16#7000) = W#16#7000);
+    END_IF;
+    IF cntrl_error THEN
+        cntrl_lastErrStatus := cntrl_status;
+    END_IF;
+    
+    *)
+    
+    // Connection time
+    runTimer(IN := true, PT := T#24D);
+    Data.runTime := runTimer.ET;
+    
+    (* Control Loop *)
+    CASE (Data._state) OF
+        -4..-1: //(Globals.MQTT_DISCONNECTED):
+            lastState := Data._state;
+            IF ((Data.runTime - t#10s) > resetTime) AND NOT Data.ethConnected THEN
+                resetTime := Data.runTime;
+                
+                (*
+                AG_CNTRL(   ACT := 1,
+                            ID := 1,
+                            LADDR := W#16#0100,
+                            CMD := 2,
+                            DONE => cntrl_done,
+                            ERROR => cntrl_error,
+                            STATUS => cntrl_status,
+                            RESULT1 => cntrl_res1,
+                            RESULT2 => cntrl_res2
+                );
+                *)
+                
+            END_IF;
+        0: //Globals.MQTT_CONNECTING:
+            IF (Data._state <> lastState) THEN
+                intState := 0;
+                lastState := Data._state;
+            END_IF;
+            CASE (intState) OF
+                0 : // Wait for received packet start
+                    IF ((Data.runTime - Data.lastInActivity) >= Globals.MQTT_SOCKET_TIMEOUT) THEN
+                        Data._state := Globals.MQTT_CONNECTION_TIMEOUT;
+                    ELSIF available() THEN
+                        myPacketReader.iBegin := true;
+                        intState := 1;
                     END_IF;
-                    intState := 0;
+                1 :    // Read complete packet
+                    IF (myPacketReader.xDone) THEN
+                        IF (myPacketReader.result = 4) THEN
+                            IF Data.buffer[3] = 0 THEN
+                                Data.lastInActivity := Data.runTime;
+                                Data.pingOutstanding := false;
+                                Data._state := Globals.MQTT_CONNECTED;
+                            ELSE
+                                Data._state := BYTE_TO_INT(Data.buffer[3]);
+                            END_IF;
+                        // ELSE maybe need equivalent/workaround to client->stop()
+                        END_IF;
+                    END_IF;
+            END_CASE;
+        1: //Globals.MQTT_CONNECTED:
+            IF (Data._state <> lastState) THEN
+                intState := 0;
+                lastState := Data._state;
+            END_IF;
+            IF ((Data.runTime - Data.lastInActivity) > Globals.MQTT_KEEPALIVE) OR ((Data.runTime - Data.lastOutActivity) > Globals.MQTT_KEEPALIVE) THEN
+                IF (Data.pingOutstanding) THEN
+                    Data._state := Globals.MQTT_CONNECTION_TIMEOUT;
+                    // need recovery
+                ELSE
+                    Data.buffer[0] := INT_TO_BYTE(Globals.MQTTPINGREQ);
+                    Data.buffer[1] := 0;
+                    sendTCP(offset := 0, size := 2);
+                    Data.lastOutActivity := Data.runTime;
+                    Data.lastInActivity := Data.lastOutActivity;
+                    Data.pingOutstanding := true;
                 END_IF;
-        END_CASE;
-END_CASE;
+            END_IF;
+            
+            CASE (intState) OF
+                0 :    // Wait for received packet start
+                    IF available() THEN
+                        myPacketReader.iBegin := true;
+                        msgId := 0;
+                        intState := 1;
+                    END_IF;
+                1 :    // Read complete packet
+                    IF (myPacketReader.xDone) THEN
+                        IF (myPacketReader.result > 0) THEN
+                            Data.lastInActivity := Data.runTime;
+                            typeOfPacket := BYTE_TO_INT(Data.buffer[0] AND B#16#F0);
+                            
+                            IF (typeOfPacket = Globals.MQTTPUBLISH) THEN
+                                tl := WORD_TO_INT(SHL(IN := BYTE_TO_WORD(Data.buffer[myPacketReader.lengthLength+1]), N := 8)) + BYTE_TO_INT(Data.buffer[myPacketReader.lengthLength+2]);
+                                FOR i := 0 TO tl-1 DO
+                                    pubTopicChar[i+2] := BYTE_TO_CHAR(Data.buffer[myPacketReader.lengthLength+3+i]);
+                                END_FOR;
+                                pubTopicChar[1] := INT_TO_CHAR(tl);
+                                paylPos := myPacketReader.lengthLength+3+tl;
+                                paylSize := myPacketReader.result - paylPos;
+                                FOR i := 0 TO paylSize-1 DO
+                                    payload[i] := Data.buffer[paylPos+i];
+                                END_FOR;
+                                payloadSize := paylSize;
+                                callback := true;
+                            ELSIF (typeOfPacket = Globals.MQTTPINGRESP) THEN
+                                Data.pingOutstanding := false;
+                            END_IF;
+                            
+                        END_IF;
+                        intState := 0;
+                    END_IF;
+            END_CASE;
+    END_CASE;
+    
+END_IF; // net_connected
+
 END_FUNCTION_BLOCK

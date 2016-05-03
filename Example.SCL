@@ -64,7 +64,7 @@ VAR_TEMP
     // Temporary Variables
 END_VAR
 
-MQTT.DB71();    // MQTT Library loop (Must be called in every App)
+MQTT.DB71(NET_CONFIG:= DB72_NET_CONFIG);    // MQTT Library loop (Must be called in every App)
 FB70.DB70();    // Example Application
 
 END_ORGANIZATION_BLOCK
