@@ -1,5 +1,11 @@
 (* ToDo:
-- check if tcp connection was lost, reinit tcp connection
+- implement state machine for TCP connect/reconnect stuff
+- make one state machine for tcp and mqtt (maybe)
+- implement internal and external interface via parameter for MQtt FB
+- if network interrupt and packet must be send keep sending request, eventually based on QOS.
+  Also give back error feedback from FB
+- after mqtt reconnect resubscribe all subscriptions, does rescubribe subscribe two times?
+- implement username password
 *)
 
 FUNCTION connected : BOOL
@@ -77,9 +83,12 @@ VAR
     cntrl_res1, cntrl_res2 : DWORD;
     
     net_init : BOOL := false;
+    net_doDisconnect : BOOL := false;
+    net_isDisconnected : BOOL := false;
     net_connect : BOOL := false;
     net_isConnected : BOOL := false;
     
+    net_busy : BOOL := false;
     net_error: BOOL := false;
     net_status: WORD;
     
@@ -112,6 +121,24 @@ IF TOP_SI.EV_NUM <> 3 THEN
     net_isConnected := false;
 END_IF;
 
+(* Disconnect TCP connection *)
+
+IF net_doDisconnect = true THEN
+    NET_DISCON(REQ := true // IN: BOOL
+           ,ID := W#16#1 // IN: WORD
+           );
+       net_isDisconnected := NET_DISCON.DONE; // OUT: BOOL
+       net_busy := NET_DISCON.BUSY; // OUT: BOOL
+       net_error := NET_DISCON.ERROR; // OUT: BOOL
+       net_status := NET_DISCON.STATUS; // OUT: WORD
+       
+   IF net_isDisconnected = true THEN
+    net_doDisconnect := false;
+    net_init := true;
+    net_isDisconnected := false;
+   END_IF;
+END_IF;
+
 (* Initialize TCP connection *)
 IF net_connect = true THEN
     NET_CON(REQ := true // IN: BOOL
@@ -119,11 +146,12 @@ IF net_connect = true THEN
                ,CONNECT := net_config // INOUT: ANY
                ); 
       net_isConnected := NET_CON.DONE; // OUT: BOOL
-       net_error := NET_CON.ERROR; // OUT: BOOL
-       net_status := NET_CON.STATUS; // OUT: WORD
+      net_error := NET_CON.ERROR; // OUT: BOOL
+      net_status := NET_CON.STATUS; // OUT: WORD
      
      IF (net_status = W#16#0) THEN
         net_connect := false;
+        Data.ethConnected := true;
      END_IF;
 END_IF;
 
@@ -171,7 +199,15 @@ IF net_isConnected = true THEN
       xSendDone := NET_SEND.DONE; // OUT: BOOL
       xSendError := NET_SEND.ERROR; // OUT: BOOL
       wSendState := NET_SEND.STATUS; // OUT: WORD
-     
+    
+    IF xSendError = true THEN
+        IF (wSendState = W#16#80A1) OR (wSendState = W#16#80C4) THEN
+            Data.ethConnected := false;
+            net_isConnected := false;
+            net_doDisconnect := true;
+        END_IF;
+    END_IF;
+
     (*
     AG_SEND(    ACT := act_send,
                 ID := 1,
@@ -209,7 +245,15 @@ IF net_isConnected = true THEN
       xReceiveError := NET_RCV.ERROR; // OUT: BOOL
       wReceiveState := NET_RCV.STATUS; // OUT: WORD
       iLength := NET_RCV.RCVD_LEN; // OUT: INT
-     
+    
+    IF xReceiveError = true THEN
+        IF (wReceiveState = W#16#80A1) OR (wReceiveState = W#16#80C4) THEN
+            Data.ethConnected := false;
+            net_isConnected := false;
+            net_doDisconnect := true;
+        END_IF;
+    END_IF;
+    
     (*
     AG_RECV(    ID := 1,
                 LADDR := W#16#0100,
