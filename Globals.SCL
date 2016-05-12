@@ -28,10 +28,20 @@ END_DATA_BLOCK
 
 DATA_BLOCK Globals
 STRUCT
-    MQTT_KEEPALIVE    : TIME := T#15s;
+    MQTT_KEEPALIVE      : TIME := T#15s;
     MQTT_SOCKET_TIMEOUT : TIME := T#15s;
 
-    // States
+    // TCP/IP States
+    TCP_CONNECTION_LOST :   INT := -3;
+    TCP_CONNECTION_FAILED : INT := -2;
+    TCP_DISCONNECTED    :   INT := -1;
+    TCP_INITIALIZED     :   INT := 0;
+    TCP_CONNECTED       :   INT := 1;
+
+
+
+    
+    // MQtt States
     MQTT_CONNECTION_TIMEOUT     : INT := -4;
     MQTT_CONNECTION_LOST        : INT := -3;
     MQTT_CONNECT_FAILED         : INT := -2;
@@ -62,8 +72,8 @@ STRUCT
     MQTTReserved        : INT := 240;
 
     MQTTQOS0    : INT := 0;
-    MQTTQOS1    : INT := 2;
-    MQTTQOS2    : INT := 4;
+    MQTTQOS1    : INT := 1;
+    MQTTQOS2    : INT := 2;
 END_STRUCT
 BEGIN
 END_DATA_BLOCK
