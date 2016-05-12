@@ -24,7 +24,7 @@ BEGIN
 
     // Make pub high to publish
     IF pub AND NOT fpub THEN
-        publish(topic := 'SIEMENSTOPIC', dataIn := publishData[0], dataSize := 16, retained := false);
+        publish(topic := 'SIEMENSTOPIC', payload := publishData[0], packetID := 8, qos := Globals.MQTTQOS1,  retain := false, duplicate := true);
     END_IF;
     fpub := pub;
 
