@@ -227,3 +227,76 @@ Data.lastOutActivity := Data.lastInActivity;
 Data._state := Globals.MQTT_CONNECTING;
 END_FUNCTION
 (**************************************************************)
+
+
+FUNCTION connectWithAuth : VOID
+VAR_INPUT
+    id          : STRING[20];
+    withUsername : BOOL;
+    withPassword : BOOL;
+    username    : STRING[127];
+    password    : STRING[127];
+END_VAR
+VAR_TEMP
+    local_id : STRING[20];
+    local_username : STRING[127];
+    local_password : STRING[127];
+    result : INT;
+    length : INT;
+    
+    fixedHeader : BYTE;
+    
+    j : INT;
+    d : ARRAY[0..6] OF BYTE;
+    llen : INT;
+    _len : INT;
+END_VAR
+BEGIN
+local_id := id;
+local_username := username;
+local_password := password;
+result := 0;
+Data.nextMsgId := 1;
+length := 5;
+d[0]:=B#16#00;d[1]:=B#16#04;d[2]:=B#16#4D;d[3]:=B#16#51;d[4]:=B#16#54;d[5]:=B#16#54;d[6]:=B#16#04;
+
+// header
+FOR j := 0 TO 6 DO
+    Data.buffer[length] := d[j];
+    length := length + 1;
+END_FOR;
+
+// Set Flags for username and password
+Data.buffer[length] := 0;
+Data.buffer[length] := Data.buffer[length] OR SHL(IN:=BOOL_TO_BYTE(withUsername),N:=7) OR SHL(IN:=BOOL_TO_BYTE(withPassword),N:=6);
+length := length + 1;
+
+// timeout - TIME_TO_DINT gives ms
+Data.buffer[length] := DWORD_TO_BYTE(SHR(IN := DINT_TO_DWORD(TIME_TO_DINT(Globals.MQTT_KEEPALIVE)/1000), N := 8));
+length := length + 1;
+Data.buffer[length] := DINT_TO_BYTE(TIME_TO_DINT(Globals.MQTT_KEEPALIVE)/1000);
+length := length + 1;
+
+// client id
+length := writeString(iStr := local_id, pos := length);
+// username
+IF withUsername = true THEN
+    length := writeString(iStr := local_username, pos := length);
+END_IF;
+// password
+IF withPassword = true THEN
+    length := writeString(iStr := local_password, pos := length);
+END_IF;
+
+// set package type in header
+fixedHeader := INT_TO_BYTE(Globals.MQTTCONNECT);
+
+// write connect header
+write(header := fixedHeader, length := length-5);
+
+Data.lastInActivity := Data.runTime;
+Data.lastOutActivity := Data.lastInActivity;
+
+Data._state := Globals.MQTT_CONNECTING;
+END_FUNCTION
+(**************************************************************)
