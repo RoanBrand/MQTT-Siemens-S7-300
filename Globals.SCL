@@ -1,17 +1,17 @@
 DATA_BLOCK Data
 STRUCT
     // TCP Incoming
-    tcpRecBuf : ARRAY[0..255] OF BYTE;
+    tcpRecBuf : ARRAY[0..8192] OF BYTE;
     pRec : INT;                 // Next incoming byte pos
     pRead : INT;                // Next byte to process
     RecBufFull : BOOL;          // Overflow
 
     // TCP Outgoing
-    tcpSendBuf : ARRAY[0..127] OF BYTE;
+    tcpSendBuf : ARRAY[0..4096] OF BYTE;
     reqSend : BOOL;
     sendSize : INT;
 
-    buffer : ARRAY[0..127] OF BYTE;
+    buffer : ARRAY[0..4096] OF BYTE;
     nextMsgId : INT;
     _state : INT := -1;
     packet_state : INT;
@@ -37,6 +37,9 @@ STRUCT
     TCP_DISCONNECTED    :   INT := -1;
     TCP_INITIALIZED     :   INT := 0;
     TCP_CONNECTED       :   INT := 1;
+    
+    TCP_RECVBUFFERSIZE  :   INT :=  8192;   // size of TCP receive buffer
+    TCP_MAXRECVSIZE     :   INT := 4096;   // TCP max receive packet size
 
 
 
