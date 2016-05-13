@@ -20,6 +20,7 @@ END_FUNCTION
 FUNCTION_BLOCK MQTT
 VAR_IN_OUT
     callback : BOOL;
+    pubAckCallback : BOOL;
 END_VAR
 VAR_TEMP
     i : INT;
@@ -44,7 +45,8 @@ VAR_TEMP
         TYP1:     BYTE;
         ZI1:      WORD;
         ZI2_3:    DWORD;
-   END_STRUCT;   
+   END_STRUCT;
+   
 END_VAR
 VAR
     // MQTT Protocol State Control
@@ -104,9 +106,8 @@ END_VAR
 VAR_OUTPUT
     pubTopic : STRING;
     pubTopicChar AT pubTopic : ARRAY[0..255] OF CHAR;
-    payload : ARRAY[0..255] OF BYTE;
+    payload : ARRAY[0..4096] OF BYTE; // Must match Globals.TCP_MAXRECVSIZE
     payloadSize : INT;
-    
 END_VAR
 
 BEGIN
@@ -276,7 +277,7 @@ IF net_isConnected = true THEN
         ELSE
             Data.tcpRecBuf[Data.pRec] := tcpRecByte;
             Data.pRec := Data.pRec + 1;
-            IF (Data.pRec >= 256) THEN
+            IF (Data.pRec >= Globals.TCP_RECVBUFFERSIZE) THEN
                 Data.pRec := 0;
             END_IF;
             IF (Data.pRec = Data.pRead) THEN
@@ -289,9 +290,9 @@ IF net_isConnected = true THEN
     
     //debug
     IF (Data.pRec >= Data.pRead) THEN
-        recBufLeft := 256 - (Data.pRec - Data.pRead);
+        recBufLeft := Globals.TCP_RECVBUFFERSIZE - (Data.pRec - Data.pRead);
     ELSE
-        recBufLeft := 256 - (Data.pRead - Data.pRec);
+        recBufLeft := Globals.TCP_RECVBUFFERSIZE - (Data.pRead - Data.pRec);
     END_IF;
     
     (*
@@ -417,6 +418,8 @@ IF net_isConnected = true THEN
                                 callback := true;
                             ELSIF (typeOfPacket = Globals.MQTTPINGRESP) THEN
                                 Data.pingOutstanding := false;
+                            ELSIF (typeOfPacket = Globals.MQTTPUBACK) THEN
+                                pubAckCallback := true;
                             END_IF;
                             
                         END_IF;
