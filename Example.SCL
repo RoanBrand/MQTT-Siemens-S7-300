@@ -25,7 +25,8 @@ BEGIN
 
     // Manual connect. Make con high
     IF con AND NOT fcon THEN
-        connect(id := 'CPU313C');
+        //connect(id := 'CPU313C');
+        connectWithAuth(id := 'CPU313C',withUsername:=true,withPassword:=true,username:='testuser',password:='pierburg');
     END_IF;
     fcon := con;
 
@@ -45,7 +46,8 @@ BEGIN
 
     // Automatic reconnect example if needed
     IF Data.ethConnected AND (Data._State < 0) THEN
-        connect(id := 'CPU313C');
+        //connect(id := 'CPU313C');
+        connectWithAuth(id := 'CPU313C',withUsername:=true,withPassword:=true,username:='testuser',password:='pierburg');
     END_IF;
 
     // Publish to 'Q' topic to control first output byte of PLC
@@ -55,9 +57,15 @@ BEGIN
     IF DB71.callback THEN
         DB71.callback := false;
         IF DB71.pubTopic = 'SIEMENSTOPIC' THEN
-            FOR i:=0 TO DB71.payloadSize-1 DO
-                receivedData[i] := DB71.payload[i];
-            END_FOR;
+            IF DB71.payloadSize >= 1024 THEN
+                 FOR i:=0 TO 1023 DO
+                    receivedData[i] := DB71.payload[i];
+                END_FOR;               
+            ELSE
+                FOR i:=0 TO DB71.payloadSize-1 DO
+                    receivedData[i] := DB71.payload[i];
+                END_FOR;
+           END_IF;
             
         END_IF;
     END_IF;
