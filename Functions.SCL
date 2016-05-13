@@ -20,6 +20,7 @@ FUNCTION publish : VOID
 VAR_INPUT
     topic : STRING[50];
     payload : ANY;
+    payloadLength : INT;
     packetID : INT := 1; // only for QoS Level 1 and 2
     qos: INT := 0; // QoS Level 0,1,2
     retain : BOOL := false;
@@ -122,21 +123,24 @@ END_IF;
 // +~~~~~~~~|~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~+  
                              
 // copy payload to buffer
-ptrBuffer := Data.buffer[length];
+//ptrBuffer := Data.buffer[length];
 ptrPayload := payload;
 
-IF structPtrPayload.Length > 1 THEN
-    structPtrBuffer.Length := structPtrPayload.Length;
-    ret := BLKMOV(SRCBLK := payload, DSTBLK := Data.buffer[length]);
-    // what is this?!
-    IF ret <> 0 THEN
-        m23.2 := true;
-        //return
-    END_IF;
-    length := length + structPtrBuffer.Length;
+
+IF payloadLength > 0 THEN
+    FOR i:=0 TO payloadLength-1 DO
+       ret := BLKMOV(SRCBLK := ptrPayload, DSTBLK := Data.buffer[length]); 
+        // what is this?!
+        IF ret <> 0 THEN
+            m23.2 := true;
+            //return
+        END_IF;
+        length := length + 1;
+        structPtrPayload.ByteAddressLSB := INT_TO_WORD(WORD_TO_INT(structPtrPayload.ByteAddressLSB) + 8);
+    END_FOR;
 END_IF;
 
-
+length := length;
 
 // copy header information (includes remaining length calculation)
 // and trigger tcpsend
