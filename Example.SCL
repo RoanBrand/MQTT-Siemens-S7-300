@@ -11,9 +11,16 @@ END_VAR
 VAR
     fcon, fpub, fsub : BOOL; // flags used for rising trigger detection
 
-    publishData : ARRAY[0..31] OF BYTE;
+    publishData : ARRAY[0..1024] OF BYTE;
+    receivedData : ARRAY[0..1024] OF BYTE;
+    
+    pubAckReceived : BOOL :=0;
+    payloadInt : INT := 0;
+    
+
 END_VAR
 BEGIN
+                   
 (* USER INPUT CONTROLS *)
 
     // Manual connect. Make con high
@@ -24,13 +31,13 @@ BEGIN
 
     // Make pub high to publish
     IF pub AND NOT fpub THEN
-        publish(topic := 'SIEMENSTOPIC', payload := publishData[0], packetID := 8, qos := Globals.MQTTQOS1,  retain := false, duplicate := true);
+        publish(topic := 'SIEMENSTOPIC', payload := publishData[0], payloadLength := 800, packetID := 8, qos := Globals.MQTTQOS1,  retain := false, duplicate := true);
     END_IF;
     fpub := pub;
 
     // Make sub high to subscribe
     IF sub AND NOT fsub THEN
-        subscribe(topic := 'Q');
+        subscribe(topic := 'SIEMENSTOPIC');
     END_IF;
     fsub := sub;
 
@@ -47,11 +54,17 @@ BEGIN
     // Second byte (0 or 1) -> Switch output ON/OFF
     IF DB71.callback THEN
         DB71.callback := false;
-        IF DB71.pubTopic = 'Q' THEN
-            IF DB71.payloadSize = 2 THEN
-                ;//Q[0,BYTE_TO_INT(DB67.payload[0])] := BYTE_TO_BOOL(DB67.payload[1]);
-            END_IF;
+        IF DB71.pubTopic = 'SIEMENSTOPIC' THEN
+            FOR i:=0 TO DB71.payloadSize-1 DO
+                receivedData[i] := DB71.payload[i];
+            END_FOR;
+            
         END_IF;
+    END_IF;
+    
+    IF DB71.pubAckCallback THEN
+        DB71.pubAckCallback := false;
+        pubAckReceived := true;
     END_IF;
 
 END_FUNCTION_BLOCK
@@ -64,7 +77,10 @@ VAR_TEMP
     // Temporary Variables
 END_VAR
 
-MQTT.DB71(NET_CONFIG:= DB72_NET_CONFIG);    // MQTT Library loop (Must be called in every App)
+MQTT.DB71(net_config := DB72_NET_CONFIG);    // MQTT Library loop (Must be called in every App)
 FB70.DB70();    // Example Application
 
+
+  
+ 
 END_ORGANIZATION_BLOCK
