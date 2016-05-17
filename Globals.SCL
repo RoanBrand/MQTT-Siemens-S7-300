@@ -21,6 +21,10 @@ STRUCT
     lastOutActivity : TIME;
     runTime : TIME;
     ethConnected : BOOL;
+    
+    connErrorCode : INT := 0;
+    recPublishPacketID : INT := 0;
+    
 END_STRUCT
 BEGIN
 END_DATA_BLOCK
@@ -51,12 +55,15 @@ STRUCT
     MQTT_DISCONNECTED           : INT := -1;
     MQTT_CONNECTING             : INT := 0;
     MQTT_CONNECTED              : INT := 1;
-    MQTT_CONN_BAD_PROTOCOL      : INT := 2;
-    MQTT_CONN_BAD_CLIENT_ID     : INT := 3;
-    MQTT_CONN_UNAVAILABLE       : INT := 4;
-    MQTT_CONN_BAD_CREDEN        : INT := 5;
-    MQTT_CONN_UNAUTHORIZED      : INT := 6;
 
+    MQTT_CONN_ACCEPTED   : INT := 0;
+    MQTT_CONN_BAD_PROTOCOL   : INT := 1;
+    MQTT_CONN_BAD_CLIENT_ID  : INT := 2;
+    MQTT_CONN_SRVUNAVAIL     : INT := 3;
+    MQTT_CONN_BAD_CREDEN     : INT := 4;
+    MQTT_CONN_UNAUTHORIZED   : INT := 5;
+        
+            
     // Packet headers
     MQTTCONNECT         : INT := 16;
     MQTTCONNACK         : INT := 32;
