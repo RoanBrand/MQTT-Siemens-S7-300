@@ -20,7 +20,7 @@ END_FUNCTION
 FUNCTION_BLOCK MQTT
 VAR_IN_OUT
     callback : BOOL;
-    pubAckCallback : BOOL;
+    callbackPacketType : INT;
 END_VAR
 VAR_TEMP
     i : INT;
@@ -47,6 +47,12 @@ VAR_TEMP
         ZI2_3:    DWORD;
    END_STRUCT;
    
+    tmpPacketID : INT;
+    structTmpPacketId AT tmpPacketID : STRUCT
+        byteLSB : BYTE;
+        byteMSB : BYTE;
+    END_STRUCT;
+    
 END_VAR
 VAR
     // MQTT Protocol State Control
@@ -359,13 +365,20 @@ IF net_isConnected = true THEN
                     END_IF;
                 1 :    // Read complete packet
                     IF (myPacketReader.xDone) THEN
-                        IF (myPacketReader.result = 4) THEN
-                            IF Data.buffer[3] = 0 THEN
+                        
+                        typeOfPacket := BYTE_TO_INT(Data.buffer[0] AND B#16#F0);
+                        IF(typeOfPacket = Globals.MQTTCONNACK) THEN
+                        //IF (myPacketReader.result = 4) THEN
+                            IF BYTE_TO_INT(Data.buffer[3]) = Globals.MQTT_CONN_ACCEPTED THEN
                                 Data.lastInActivity := Data.runTime;
                                 Data.pingOutstanding := false;
                                 Data._state := Globals.MQTT_CONNECTED;
                             ELSE
-                                Data._state := BYTE_TO_INT(Data.buffer[3]);
+                                //Data._state := BYTE_TO_INT(Data.buffer[3]);
+                                Data._state := -2;
+                                callback := true;
+                                callbackPacketType := Globals.MQTTCONNACK;
+                                Data.connErrorCode := BYTE_TO_INT(Data.buffer[3]);
                             END_IF;
                         // ELSE maybe need equivalent/workaround to client->stop()
                         END_IF;
@@ -419,7 +432,12 @@ IF net_isConnected = true THEN
                             ELSIF (typeOfPacket = Globals.MQTTPINGRESP) THEN
                                 Data.pingOutstanding := false;
                             ELSIF (typeOfPacket = Globals.MQTTPUBACK) THEN
-                                pubAckCallback := true;
+                                callback := true;
+                                callbackPacketType := Globals.MQTTPUBACK;
+                                // get the packet ID of the PubAck package and store it in Data.recPublishPacketID
+                                structTmpPacketId.byteMSB := Data.buffer[3];
+                                structTmpPacketId.byteLSB := Data.buffer[2];
+                                Data.recPublishPacketID := tmpPacketID;
                             END_IF;
                             
                         END_IF;
