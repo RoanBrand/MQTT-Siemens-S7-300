@@ -13,11 +13,10 @@ VAR
 
     publishData : ARRAY[0..1024] OF BYTE;
     receivedData : ARRAY[0..1024] OF BYTE;
-    
+    willData : ARRAY[0..128] OF BYTE;
+    willDataLength : INT := 0;
     pubAckReceived : BOOL :=0;
     payloadInt : INT := 0;
-    
-
 END_VAR
 BEGIN
                    
@@ -26,13 +25,14 @@ BEGIN
     // Manual connect. Make con high
     IF con AND NOT fcon THEN
         //connect(id := 'CPU313C');
-        connectWithAuth(id := 'CPU313C',withUsername:=true,withPassword:=true,username:='testuser',password:='pierburg');
+        connectWithAuth(id := 'CPU313C',withUsername:=false,withPassword:=false,cleanSession:=true,withWill:=true,willQos:=0,willRetain:=0,willTopic:='Connection Lost',willPayload:=willData[0],willPayloadLength:=0,username:='a',password:='b');
+
     END_IF;
     fcon := con;
 
     // Make pub high to publish
     IF pub AND NOT fpub THEN
-        publish(topic := 'SIEMENSTOPIC', payload := publishData[0], payloadLength := 800, packetID := 8, qos := Globals.MQTTQOS1,  retain := false, duplicate := true);
+        publish(topic := 'SIEMENSTOPIC', payload := publishData[0], payloadLength := 800, packetID := 8, qos := Globals.MQTTQOS1, retain := false, duplicate := true);
     END_IF;
     fpub := pub;
 
@@ -47,7 +47,7 @@ BEGIN
     // Automatic reconnect example if needed
     IF Data.ethConnected AND (Data._State < 0) THEN
         //connect(id := 'CPU313C');
-        connectWithAuth(id := 'CPU313C',withUsername:=true,withPassword:=true,username:='testuser',password:='pierburg');
+        connectWithAuth(id := 'CPU313C',withUsername:=false,withPassword:=false,cleanSession:=true,withWill:=true,willQos:=0,willRetain:=0,willTopic:='Connection Lost',willPayload:=willData[0],willPayloadLength:=0,username:='a',password:='b');
     END_IF;
 
     // Publish to 'Q' topic to control first output byte of PLC
@@ -55,25 +55,28 @@ BEGIN
     // First byte of payload (0-7)  -> Output num
     // Second byte (0 or 1) -> Switch output ON/OFF
     IF DB71.callback THEN
-        DB71.callback := false;
-        IF DB71.pubTopic = 'SIEMENSTOPIC' THEN
-            IF DB71.payloadSize >= 1024 THEN
-                 FOR i:=0 TO 1023 DO
-                    receivedData[i] := DB71.payload[i];
-                END_FOR;               
-            ELSE
-                FOR i:=0 TO DB71.payloadSize-1 DO
-                    receivedData[i] := DB71.payload[i];
-                END_FOR;
-           END_IF;
-            
+        IF DB71.callbackPacketType = Globals.MQTTPUBLISH THEN
+            DB71.callback := false;
+            IF DB71.pubTopic = 'SIEMENSTOPIC' THEN
+                IF DB71.payloadSize >= 1024 THEN
+                     FOR i:=0 TO 1023 DO
+                        receivedData[i] := DB71.payload[i];
+                    END_FOR;               
+                ELSE
+                    FOR i:=0 TO DB71.payloadSize-1 DO
+                        receivedData[i] := DB71.payload[i];
+                    END_FOR;
+               END_IF;
+                
+            END_IF;
+        END_IF;
+        
+        IF DB71.callbackPacketType = Globals.MQTTPUBACK THEN
+            DB71.callback := false;
+            pubAckReceived := true;           
         END_IF;
     END_IF;
-    
-    IF DB71.pubAckCallback THEN
-        DB71.pubAckCallback := false;
-        pubAckReceived := true;
-    END_IF;
+   
 
 END_FUNCTION_BLOCK
 
