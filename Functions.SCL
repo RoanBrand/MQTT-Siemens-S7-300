@@ -14,7 +14,6 @@ END_TYPE
 (*
 - implement Qos Level 1
 - implement Qos Level 2
-- implement message size 16k
 *)
 FUNCTION publish : VOID
 VAR_INPUT
@@ -126,7 +125,6 @@ END_IF;
 //ptrBuffer := Data.buffer[length];
 ptrPayload := payload;
 
-
 IF payloadLength > 0 THEN
     FOR i:=0 TO payloadLength-1 DO
        ret := BLKMOV(SRCBLK := ptrPayload, DSTBLK := Data.buffer[length]); 
@@ -139,8 +137,6 @@ IF payloadLength > 0 THEN
         structPtrPayload.ByteAddressLSB := INT_TO_WORD(WORD_TO_INT(structPtrPayload.ByteAddressLSB) + 8);
     END_FOR;
 END_IF;
-
-length := length;
 
 // copy header information (includes remaining length calculation)
 // and trigger tcpsend
@@ -229,13 +225,25 @@ END_FUNCTION
 (**************************************************************)
 
 
+(* 
+   Connect method
+   Please read http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html, section 3.1 CONENCT
+*)
 FUNCTION connectWithAuth : VOID
+
 VAR_INPUT
-    id          : STRING[20];
-    withUsername : BOOL;
-    withPassword : BOOL;
-    username    : STRING[127];
-    password    : STRING[127];
+    id           : STRING[20];
+    withUsername : BOOL := 0;
+    withPassword : BOOL := 0;
+    cleanSession : BOOL := 0;
+    withWill     : BOOL := 0;
+    willQos      : INT := 0;
+    willRetain   : BOOL := 0;
+    willTopic    : STRING[50] := '';
+    willPayload  : ANY;
+    willPayloadLength : INT := 0;
+    username     : STRING[127] := '';
+    password     : STRING[127] := '';
 END_VAR
 VAR_TEMP
     local_id : STRING[20];
@@ -245,12 +253,19 @@ VAR_TEMP
     length : INT;
     
     fixedHeader : BYTE;
+    holdstring : STRING[50];
     
+    ptrWillPayload : ANY;
+    structWillPtrPayload AT ptrWillPayload : UDT100;
+    
+    ret : INT;
+    i : INT;
     j : INT;
     d : ARRAY[0..6] OF BYTE;
     llen : INT;
     _len : INT;
 END_VAR
+
 BEGIN
 local_id := id;
 local_username := username;
@@ -266,9 +281,21 @@ FOR j := 0 TO 6 DO
     length := length + 1;
 END_FOR;
 
-// Set Flags for username and password
+// Set Flags for username and password, cleanSession,
 Data.buffer[length] := 0;
-Data.buffer[length] := Data.buffer[length] OR SHL(IN:=BOOL_TO_BYTE(withUsername),N:=7) OR SHL(IN:=BOOL_TO_BYTE(withPassword),N:=6);
+Data.buffer[length] := Data.buffer[length] OR SHL(IN:=BOOL_TO_BYTE(withUsername),N:=7) OR SHL(IN:=BOOL_TO_BYTE(withPassword),N:=6) OR SHL(IN:=BOOL_TO_BYTE(cleanSession),N:=1);
+
+// set all will flags and will qos if with will
+IF withWill = true THEN
+    Data.buffer[length] := Data.buffer[length] OR SHL(IN:=BOOL_TO_BYTE(willRetain),N:=5) OR SHL(IN:=BOOL_TO_BYTE(withWill),N:=2);
+    IF willQos = Globals.MQTTQOS1 THEN
+        Data.buffer[length] := Data.buffer[length] OR SHL(IN:=BOOL_TO_BYTE(true),N:=3);
+    END_IF;
+        IF willQos = Globals.MQTTQOS2 THEN
+        Data.buffer[length] := Data.buffer[length] OR SHL(IN:=BOOL_TO_BYTE(true),N:=4);
+    END_IF;
+END_IF;
+
 length := length + 1;
 
 // timeout - TIME_TO_DINT gives ms
@@ -279,6 +306,37 @@ length := length + 1;
 
 // client id
 length := writeString(iStr := local_id, pos := length);
+
+
+IF withWill = true THEN
+    // copy will topic to buffer
+    holdstring := willTopic;
+    length := writeString(iStr := holdstring, pos := length);    
+    
+    // copy payload to buffer
+    //ptrBuffer := Data.buffer[length];
+    ptrWillPayload := willPayload;
+    
+    IF willPayloadLength > 0 THEN
+        FOR i:=0 TO willPayloadLength-1 DO
+           ret := BLKMOV(SRCBLK := ptrWillPayload, DSTBLK := Data.buffer[length]); 
+            // what is this?!
+            IF ret <> 0 THEN
+                m23.2 := true;
+                //return
+            END_IF;
+            length := length + 1;
+            structWillPtrPayload.ByteAddressLSB := INT_TO_WORD(WORD_TO_INT(structWillPtrPayload.ByteAddressLSB) + 8);
+        END_FOR;
+    ELSE
+        // if no will payload (willPayloadLength=0) we have to set the two payload length bytes to 0
+        Data.buffer[length] := 0;
+        length := length + 1;
+        Data.buffer[length] := 0;
+        length := length + 1;
+    END_IF;
+END_IF;
+
 // username
 IF withUsername = true THEN
     length := writeString(iStr := local_username, pos := length);
