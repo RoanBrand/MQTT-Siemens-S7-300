@@ -432,12 +432,33 @@ IF net_isConnected = true THEN
                             ELSIF (typeOfPacket = Globals.MQTTPINGRESP) THEN
                                 Data.pingOutstanding := false;
                             ELSIF (typeOfPacket = Globals.MQTTPUBACK) THEN
-                                callback := true;
+                                // we received a PUBACK package, part of MQTT QoS 1 handshake (see MQTT Docs. section 4.3.2 QoS 1: At least once delivery)
                                 callbackPacketType := Globals.MQTTPUBACK;
                                 // get the packet ID of the PubAck package and store it in Data.recPublishPacketID
                                 structTmpPacketId.byteMSB := Data.buffer[3];
                                 structTmpPacketId.byteLSB := Data.buffer[2];
                                 Data.recPublishPacketID := tmpPacketID;
+                                callback := true;
+                            ELSIF (typeOfPacket = Globals.MQTTPUBREC) THEN
+                                // we received a PUBREC package, part of MQTT QoS 2 handshake (see MQTT Docs. section 4.3.3 QoS 2: Exactly once delivery)
+                                // get the packet ID of the PubAck package and store it in Data.recPublishPacketID
+                                structTmpPacketId.byteMSB := Data.buffer[3];
+                                structTmpPacketId.byteLSB := Data.buffer[2];
+                                // send out a PUBREL packet
+                                Data.buffer[0] := INT_TO_BYTE(Globals.MQTTPUBREL);
+                                Data.buffer[0] := Data.buffer[0] OR SHL(IN:=INT_TO_BYTE(Globals.MQTTQOS1),N:=1); // set qos flag to 2
+                                Data.buffer[1] := 16#02;
+                                sendTCP(offset := 0, size := 4);
+                                Data.lastOutActivity := Data.runTime;
+                            ELSIF (typeOfPacket = Globals.MQTTPUBCOMP) THEN
+                                // we received a PUBCOMP package, part of MQTT QoS 2 handshake (see MQTT Docs. section 4.3.3 QoS 2: Exactly once delivery)
+                                // notify about successfull QoS 2 handshake
+                                callbackPacketType := Globals.MQTTPUBCOMP;
+                                // get the packet ID of the PubAck package and store it in Data.recPublishPacketID
+                                structTmpPacketId.byteMSB := Data.buffer[3];
+                                structTmpPacketId.byteLSB := Data.buffer[2];
+                                Data.recPublishPacketID := tmpPacketID;
+                                callback := true;
                             END_IF;
                             
                         END_IF;
