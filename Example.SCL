@@ -32,7 +32,7 @@ BEGIN
 
     // Make pub high to publish
     IF pub AND NOT fpub THEN
-        publish(topic := 'SIEMENSTOPIC', payload := publishData[0], payloadLength := 800, packetID := 8, qos := Globals.MQTTQOS1, retain := false, duplicate := true);
+        publish(topic := 'SIEMENSTOPIC', payload := publishData[0], payloadLength := 800, packetID := 10, qos := Globals.MQTTQOS2, retain := false, duplicate := false);
     END_IF;
     fpub := pub;
 
@@ -71,7 +71,8 @@ BEGIN
             END_IF;
         END_IF;
         
-        IF DB71.callbackPacketType = Globals.MQTTPUBACK THEN
+        // Example for Qos1 (Single stage handshake with PUBACK response) or Qo2 (Dual stage handshake with PUBCOMP response)
+        IF (DB71.callbackPacketType = Globals.MQTTPUBACK) OR  (DB71.callbackPacketType = Globals.MQTTPUBCOMP) THEN
             DB71.callback := false;
             pubAckReceived := true;           
         END_IF;
