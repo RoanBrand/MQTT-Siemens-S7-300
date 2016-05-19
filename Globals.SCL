@@ -1,4 +1,4 @@
-DATA_BLOCK Data
+DATA_BLOCK mqttData
 STRUCT
     // TCP Incoming
     tcpRecBuf : ARRAY[0..8192] OF BYTE;
@@ -30,7 +30,7 @@ BEGIN
 END_DATA_BLOCK
 (**************************************************************)
 
-DATA_BLOCK Globals
+DATA_BLOCK mqttGlobals
 STRUCT
     MQTT_KEEPALIVE      : TIME := T#15s;
     MQTT_SOCKET_TIMEOUT : TIME := T#15s;
