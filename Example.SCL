@@ -2,14 +2,17 @@
 FUNCTION_BLOCK FB70
 VAR_INPUT
     con : BOOL;     // Rise to Connect
+    discon : BOOL;  // Rise to Disconnect
     pub : BOOL;     // Rise to Publish
     sub : BOOL;     // Rise to Subscribe
+    unsub : BOOL;   // Rise to Unsubscribe
+    
 END_VAR
 VAR_TEMP
     i : INT;
 END_VAR
 VAR
-    fcon, fpub, fsub : BOOL; // flags used for rising trigger detection
+    fcon, fpub, fsub,fdiscon,funsub : BOOL; // flags used for rising trigger detection
 
     publishData : ARRAY[0..1024] OF BYTE;
     receivedData : ARRAY[0..1024] OF BYTE;
@@ -17,6 +20,7 @@ VAR
     willDataLength : INT := 0;
     pubAckReceived : BOOL :=0;
     payloadInt : INT := 0;
+    myPublishMessageID : INT := 0;
 END_VAR
 BEGIN
                    
@@ -25,29 +29,41 @@ BEGIN
     // Manual connect. Make con high
     IF con AND NOT fcon THEN
         //connect(id := 'CPU313C');
-        connectWithAuth(id := 'CPU313C',withUsername:=false,withPassword:=false,cleanSession:=true,withWill:=true,willQos:=0,willRetain:=0,willTopic:='Connection Lost',willPayload:=willData[0],willPayloadLength:=0,username:='a',password:='b');
+        mqttCONNECT(clientID := 'CPU313C',withUsername:=false,withPassword:=false,cleanSession:=true,withWill:=true,willQos:=0,willRetain:=0,willTopic:='Connection Lost',willPayload:=willData[0],willPayloadLength:=0,username:='a',password:='b');
 
     END_IF;
     fcon := con;
 
+    // Make discon high to disconnect
+    IF discon AND NOT fdiscon THEN
+        mqttDISCONNECT();
+    END_IF;
+    fdiscon := discon;
+    
     // Make pub high to publish
     IF pub AND NOT fpub THEN
-        publish(topic := 'SIEMENSTOPIC', payload := publishData[0], payloadLength := 800, packetID := 10, qos := Globals.MQTTQOS2, retain := false, duplicate := false);
+        myPublishMessageID := mqttPUBLISH(topic := 'SIEMENSTOPIC', payload := publishData[0], payloadLength := 800, qos := mqttGlobals.MQTTQOS2, retain := false, duplicate := false);
     END_IF;
     fpub := pub;
 
     // Make sub high to subscribe
     IF sub AND NOT fsub THEN
-        subscribe(topic := 'SIEMENSTOPIC');
+        mqttSUBSCRIBE(topic := 'SIEMENSTOPIC',topicQos := mqttGlobals.MQTTQOS0);
     END_IF;
     fsub := sub;
+    
+    // Make sub high to unsubscribe
+    IF funsub AND NOT unsub THEN
+        mqttUNSUBSCRIBE(topic := 'SIEMENSTOPIC');
+    END_IF;
+    funsub := unsub;
 
 (* OTHER *)
 
     // Automatic reconnect example if needed
-    IF Data.ethConnected AND (Data._State < 0) THEN
+    IF mqttData.ethConnected AND (mqttData._State < 0) THEN
         //connect(id := 'CPU313C');
-        connectWithAuth(id := 'CPU313C',withUsername:=false,withPassword:=false,cleanSession:=true,withWill:=true,willQos:=0,willRetain:=0,willTopic:='Connection Lost',willPayload:=willData[0],willPayloadLength:=0,username:='a',password:='b');
+        mqttCONNECT(clientID := 'CPU313C',withUsername:=false,withPassword:=false,cleanSession:=true,withWill:=true,willQos:=0,willRetain:=0,willTopic:='Connection Lost',willPayload:=willData[0],willPayloadLength:=0,username:='a',password:='b');
     END_IF;
 
     // Publish to 'Q' topic to control first output byte of PLC
@@ -55,7 +71,7 @@ BEGIN
     // First byte of payload (0-7)  -> Output num
     // Second byte (0 or 1) -> Switch output ON/OFF
     IF DB71.callback THEN
-        IF DB71.callbackPacketType = Globals.MQTTPUBLISH THEN
+        IF DB71.callbackPacketType = mqttGlobals.MQTTPUBLISH THEN
             DB71.callback := false;
             IF DB71.pubTopic = 'SIEMENSTOPIC' THEN
                 IF DB71.payloadSize >= 1024 THEN
@@ -72,7 +88,7 @@ BEGIN
         END_IF;
         
         // Example for Qos1 (Single stage handshake with PUBACK response) or Qo2 (Dual stage handshake with PUBCOMP response)
-        IF (DB71.callbackPacketType = Globals.MQTTPUBACK) OR  (DB71.callbackPacketType = Globals.MQTTPUBCOMP) THEN
+        IF (DB71.callbackPacketType = mqttGlobals.MQTTPUBACK) OR  (DB71.callbackPacketType = mqttGlobals.MQTTPUBCOMP) THEN
             DB71.callback := false;
             pubAckReceived := true;           
         END_IF;
