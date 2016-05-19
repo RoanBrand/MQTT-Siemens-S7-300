@@ -1,3 +1,9 @@
+(*
+    TODO:
+    - connect method: handle reset of message ID according to cleanSessio flag
+
+*)
+
 TYPE UDT100
 TITLE = DISSASEMBLED ANYPOINTER
     STRUCT
@@ -11,16 +17,315 @@ TITLE = DISSASEMBLED ANYPOINTER
     END_STRUCT
 END_TYPE
 
+
+
+FUNCTION mqttGetNextMessageID : INT
+BEGIN
+    mqttData.nextMsgId := mqttData.nextMsgId + 1;
+    
+    IF (mqttData.nextMsgId <= 0) THEN
+        mqttData.nextMsgId := 1;
+    END_IF;
+    
+    mqttGetNextMessageID := mqttData.nextMsgId;
+END_FUNCTION
+
+
+
 (*
-- implement Qos Level 1
-- implement Qos Level 2
+   ***********************************************************************
+   MQtt connect method
+   Please refer to http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html, section 3.1 CONNECT
+   ***********************************************************************
 *)
-FUNCTION publish : VOID
+FUNCTION mqttCONNECT : VOID
+
+VAR_INPUT
+    clientID     : STRING[23];
+    withUsername : BOOL := 0;
+    withPassword : BOOL := 0;
+    cleanSession : BOOL := 0;
+    withWill     : BOOL := 0;
+    willQos      : INT := 0;
+    willRetain   : BOOL := 0;
+    willTopic    : STRING[50] := '';
+    willPayload  : ANY;
+    willPayloadLength : INT := 0;
+    username     : STRING[50] := '';
+    password     : STRING[50] := '';
+END_VAR
+VAR_TEMP
+    l_clientID     : STRING[23];
+    l_username     : STRING[50];
+    l_password     : STRING[50];
+    l_willTopic    : STRING[50];
+    
+    result         : INT;
+    length         : INT;
+    
+    fixedHeader    : BYTE;
+    
+    ptrWillPayload : ANY;
+    structWillPtrPayload AT ptrWillPayload : UDT100;
+    
+    ret  : INT;
+    i    : INT;
+    j    : INT;
+    d    : ARRAY[0..6] OF BYTE;
+    llen : INT;
+    _len : INT;
+END_VAR
+
+BEGIN
+l_clientID := clientID;
+l_username := username;
+l_password := password;
+
+result := 0;
+
+mqttData.nextMsgId := 1; // set next message ID to 1 because we started a new clean(!) session
+
+length := 5;
+d[0]:=B#16#00;d[1]:=B#16#04;d[2]:=B#16#4D;d[3]:=B#16#51;d[4]:=B#16#54;d[5]:=B#16#54;d[6]:=B#16#04;
+
+// header
+FOR j := 0 TO 6 DO
+    mqttData.buffer[length] := d[j];
+    length := length + 1;
+END_FOR;
+
+// Set Flags for username and password, cleanSession,
+mqttData.buffer[length] := 0;
+mqttData.buffer[length] := mqttData.buffer[length] OR SHL(IN:=BOOL_TO_BYTE(withUsername),N:=7) OR SHL(IN:=BOOL_TO_BYTE(withPassword),N:=6) OR SHL(IN:=BOOL_TO_BYTE(cleanSession),N:=1);
+
+// set all will flags and will qos if with will
+IF withWill = true THEN
+    mqttData.buffer[length] := mqttData.buffer[length] OR SHL(IN:=BOOL_TO_BYTE(willRetain),N:=5) OR SHL(IN:=BOOL_TO_BYTE(withWill),N:=2);
+    IF willQos = mqttGlobals.MQTTQOS1 THEN
+        mqttData.buffer[length] := mqttData.buffer[length] OR SHL(IN:=BOOL_TO_BYTE(true),N:=3);
+    END_IF;
+        IF willQos = mqttGlobals.MQTTQOS2 THEN
+        mqttData.buffer[length] := mqttData.buffer[length] OR SHL(IN:=BOOL_TO_BYTE(true),N:=4);
+    END_IF;
+END_IF;
+
+length := length + 1;
+
+// timeout - TIME_TO_DINT gives ms
+mqttData.buffer[length] := DWORD_TO_BYTE(SHR(IN := DINT_TO_DWORD(TIME_TO_DINT(mqttGlobals.MQTT_KEEPALIVE)/1000), N := 8));
+length := length + 1;
+mqttData.buffer[length] := DINT_TO_BYTE(TIME_TO_DINT(mqttGlobals.MQTT_KEEPALIVE)/1000);
+length := length + 1;
+
+// client id
+length := mqttWriteString(iStr := l_clientID, pos := length);
+
+
+IF withWill = true THEN
+    // copy will topic to buffer
+    l_willTopic := willTopic;
+    length := mqttWriteString(iStr := l_willTopic, pos := length);    
+    
+    // copy payload to buffer
+    //ptrBuffer := mqttData.buffer[length];
+    ptrWillPayload := willPayload;
+    
+    IF willPayloadLength > 0 THEN
+        FOR i:=0 TO willPayloadLength-1 DO
+           ret := BLKMOV(SRCBLK := ptrWillPayload, DSTBLK := mqttData.buffer[length]); 
+            // what is this?!
+            IF ret <> 0 THEN
+                m23.2 := true;
+                //return
+            END_IF;
+            length := length + 1;
+            structWillPtrPayload.ByteAddressLSB := INT_TO_WORD(WORD_TO_INT(structWillPtrPayload.ByteAddressLSB) + 8);
+        END_FOR;
+    ELSE
+        // if no will payload (willPayloadLength=0) we have to set the two payload length bytes to 0
+        mqttData.buffer[length] := 0;
+        length := length + 1;
+        mqttData.buffer[length] := 0;
+        length := length + 1;
+    END_IF;
+END_IF;
+
+// username
+IF withUsername = true THEN
+    length := mqttWriteString(iStr := l_username, pos := length);
+END_IF;
+// password
+IF withPassword = true THEN
+    length := mqttWriteString(iStr := l_password, pos := length);
+END_IF;
+
+// set package type in header
+fixedHeader := INT_TO_BYTE(mqttGlobals.MQTTCONNECT);
+
+// write connect header
+mqttWrite(header := fixedHeader, length := length-5);
+
+mqttData.lastInActivity := mqttData.runTime;
+mqttData.lastOutActivity := mqttData.lastInActivity;
+
+mqttData._state := mqttGlobals.MQTT_CONNECTING;
+END_FUNCTION
+(**************************************************************)
+
+
+(* 
+   **********************************************************************************
+   MQtt connect method - simple version for convinience usage
+   **********************************************************************************
+*)
+FUNCTION mqttSimpleCONNECT : VOID
+VAR_INPUT
+    clientID : STRING[23];
+    cleanSession : BOOL;
+END_VAR
+VAR_TEMP
+    l_clientID : STRING[23];
+    l_cleanSession : BOOL;
+END_VAR
+BEGIN
+    l_clientID := clientID;
+    l_cleanSession := cleanSession;
+    
+    mqttConnect(clientID     := l_clientID,
+                withUsername := false,
+                withPassword := false,
+                cleanSession := l_cleanSession,
+                withWill     := false,
+                willQos      := 0,
+                willRetain   := 0,
+                willTopic    := '',
+                willPayload  := NIL,
+                willPayloadLength := 0,
+                username     := '',
+                password     := '');
+END_FUNCTION
+(**************************************************************)
+
+
+(*
+   **********************************************************************************
+   MQtt disconnect method
+   Please refer to http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html
+   Section 3.14 DISCONNECT - disconnect notification
+   **********************************************************************************
+*)
+FUNCTION mqttDISCONNECT : VOID
+BEGIN
+    mqttData.buffer[0] := INT_TO_BYTE(mqttGlobals.MQTTDISCONNECT);
+    mqttData.buffer[1] := 0;
+    mqttSendTCP(offset := 0, size := 2);
+    mqttData.lastOutActivity := mqttData.runTime;
+END_FUNCTION
+
+
+(*
+   **********************************************************************************
+   MQtt subscribe method
+   Please refer to http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html
+   Section 3.8 PUBLISH - subscribe message
+   **********************************************************************************
+*)
+FUNCTION mqttSUBSCRIBE : VOID
 VAR_INPUT
     topic : STRING[50];
+    topicQos: INT := 0; // QoS Level 0,1,2
+END_VAR
+VAR_TEMP
+    length : INT;
+    l_topic : STRING[50];
+    thisMessageID : INT;
+END_VAR
+BEGIN
+
+l_topic := topic;
+
+// check if topic is not longer than 119 bytes
+IF (128 < (9 + LEN(l_topic))) THEN
+    RETURN;
+END_IF;
+
+length := 5;
+
+// set message ID
+thisMessageID := mqttGetNextMessageID();
+mqttData.buffer[length] := DWORD_TO_BYTE(SHR(IN := INT_TO_DWORD(thisMessageID), N := 8));
+length := length + 1;
+mqttData.buffer[length] := INT_TO_BYTE(thisMessageID) AND B#16#FF;
+length := length + 1;
+
+// set topic
+length := mqttWriteString(iStr := l_topic, pos := length);
+// set topic qos
+mqttData.buffer[length] := INT_TO_BYTE(topicQos);
+length := length + 1;
+
+// write header and send message
+mqttWrite(header := INT_TO_BYTE(mqttGlobals.MQTTSUBSCRIBE), length := length-5);
+END_FUNCTION
+(**************************************************************)
+
+
+(*
+   **********************************************************************************
+   MQtt unsubscribe method
+   Please refer to http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html
+   Section 3.8 UNSUBSCRIBE - unsubscribe from topics
+   **********************************************************************************
+*)
+FUNCTION mqttUNSUBSCRIBE : VOID
+VAR_INPUT
+    topic : STRING[50];
+END_VAR
+VAR_TEMP
+    length : INT;
+    l_topic : STRING[50];
+    thisMessageID : INT;
+END_VAR
+BEGIN
+
+l_topic := topic;
+
+// check if topic is not longer than 119 bytes
+IF (128 < (9 + LEN(l_topic))) THEN
+    RETURN;
+END_IF;
+
+length := 5;
+
+// set message ID
+thisMessageID := mqttGetNextMessageID();
+mqttData.buffer[length] := DWORD_TO_BYTE(SHR(IN := INT_TO_DWORD(thisMessageID), N := 8));
+length := length + 1;
+mqttData.buffer[length] := INT_TO_BYTE(thisMessageID) AND B#16#FF;
+length := length + 1;
+
+// set topic
+length := mqttWriteString(iStr := l_topic, pos := length);
+
+// write header and send message
+mqttWrite(header := INT_TO_BYTE(mqttGlobals.MQTTUNSUBSCRIBE), length := length-5);
+END_FUNCTION
+(**************************************************************)
+
+
+(* 
+   **********************************************************************************
+   MQtt publish method
+   Please refer to http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html
+   Section 3.3 PUBLISH - publish message
+   RETURN: message ID (if Qos1 or Qos2 was selected, else 0)
+   **********************************************************************************
+*)
+FUNCTION mqttPUBLISH : INT
+VAR_INPUT
+    topic : STRING[127];
     payload : ANY;
     payloadLength : INT;
-    packetID : INT := 1; // only for QoS Level 1 and 2
     qos: INT := 0; // QoS Level 0,1,2
     retain : BOOL := false;
     duplicate : BOOL := false;
@@ -31,16 +336,12 @@ VAR_TEMP
     fixedHeader : BYTE;
     holdstring : STRING[50];
     
+    thisMessageID : INT;
+    
     tdata : ANY;
     pdata AT tdata : UDT100;
     
     ret : INT;
-    
-    tmpPacketID : INT;
-    structTmpPacketId AT tmpPacketID : STRUCT
-        byteLSB : BYTE;
-        byteMSB : BYTE;
-    END_STRUCT;
     
     ptrBuffer : ANY;
     structPtrBuffer AT ptrBuffer : UDT100;
@@ -50,6 +351,9 @@ VAR_TEMP
 END_VAR
 BEGIN
 
+// set return value (message ID) to 0
+mqttPublish := 0;
+
 // Fixed header, byte 1
 // +--------+---+-----+---+---+----------+-----+-----+--------+
 // |bit     | 7 |  6  | 5 | 4 |     3    |  2  |  1  |    0   |
@@ -58,10 +362,9 @@ BEGIN
 // +--------+-----------------+----------+-----------+--------+
 
 // set package type in header
-fixedHeader := INT_TO_BYTE(Globals.MQTTPUBLISH);
+fixedHeader := INT_TO_BYTE(mqttGlobals.MQTTPUBLISH);
 // Set Header Flags for duplicates, qos level and retain
 fixedHeader := fixedHeader OR SHL(IN:=BOOL_TO_BYTE(duplicate),N:=3) OR SHL(IN:=INT_TO_BYTE(qos),N:=1) OR BOOL_TO_BYTE(retain);
-
 
 // Fixed header, byte 2
 // +--------+---+---+---+---+---+---+---+---+
@@ -70,8 +373,7 @@ fixedHeader := fixedHeader OR SHL(IN:=BOOL_TO_BYTE(duplicate),N:=3) OR SHL(IN:=I
 // |bytes 2..4|   Remaining Length          |
 // +--------+-------------------------------+
 
-// Topic string length
-// Variable header
+// Variable header, topic
 // +--------+---+---+---+---+---+---+---+---+
 // |bit     | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
 // +--------+---+---+---+---+---+---+---+---+
@@ -79,9 +381,6 @@ fixedHeader := fixedHeader OR SHL(IN:=BOOL_TO_BYTE(duplicate),N:=3) OR SHL(IN:=I
 // +~~~~~~~~|~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~+
 // |byte    |           Topic length LSB    |
 // +~~~~~~~~|~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~+
-
-// Topic
-// Variable header, byte 8...
 // +--------+---+---+---+---+---+---+---+---+
 // |bit     | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
 // +--------+---+---+---+---+---+---+---+---+
@@ -92,7 +391,7 @@ fixedHeader := fixedHeader OR SHL(IN:=BOOL_TO_BYTE(duplicate),N:=3) OR SHL(IN:=I
 // copy topic to buffer
 holdstring := topic;
 length := 5;
-length := writeString(iStr := holdstring, pos := length);
+length := mqttWriteString(iStr := holdstring, pos := length);
 
 // MessageID  
 // Variable header, byte 9
@@ -105,12 +404,16 @@ length := writeString(iStr := holdstring, pos := length);
 // +--------+-------------------------------+
 
 // set MessageID if qos level 1 or 2
-tmpPacketID := packetID;
-IF (qos = Globals.MQTTQOS1) OR (qos = Globals.MQTTQOS2) THEN
-    Data.buffer[length] := structTmpPacketId.byteLSB;
+IF (qos = mqttGlobals.MQTTQOS1) OR (qos = mqttGlobals.MQTTQOS2) THEN
+    thisMessageID := mqttGetNextMessageID();
+    
+    // insert message ID
+    mqttData.buffer[length] := DWORD_TO_BYTE(SHR(IN := INT_TO_DWORD(thisMessageID), N := 8));
     length := length + 1;
-    Data.buffer[length] := structTmpPacketId.byteMSB;
+    mqttData.buffer[length] := INT_TO_BYTE(thisMessageID) AND B#16#FF;
     length := length + 1;
+    
+    mqttPublish := thisMessageID;
 END_IF;
 
 // Payload
@@ -122,12 +425,12 @@ END_IF;
 // +~~~~~~~~|~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~+  
                              
 // copy payload to buffer
-//ptrBuffer := Data.buffer[length];
+//ptrBuffer := mqttData.buffer[length];
 ptrPayload := payload;
 
 IF payloadLength > 0 THEN
     FOR i:=0 TO payloadLength-1 DO
-       ret := BLKMOV(SRCBLK := ptrPayload, DSTBLK := Data.buffer[length]); 
+       ret := BLKMOV(SRCBLK := ptrPayload, DSTBLK := mqttData.buffer[length]); 
         // what is this?!
         IF ret <> 0 THEN
             m23.2 := true;
@@ -140,221 +443,11 @@ END_IF;
 
 // copy header information (includes remaining length calculation)
 // and trigger tcpsend
-write(header := fixedHeader, length := length-5);
+mqttWrite(header := fixedHeader, length := length-5);
 
 END_FUNCTION
 (**************************************************************)
 
-FUNCTION subscribe : VOID
-VAR_INPUT
-    topic : STRING[50];
-END_VAR
-VAR_TEMP
-    length : INT;
-    holdstring : STRING[50];
-END_VAR
-BEGIN
-holdstring := topic;
-IF (128 < (9 + LEN(holdstring))) THEN
-    RETURN;
-END_IF;
-length := 5;
-Data.nextMsgId := Data.nextMsgId + 1;
-IF (Data.nextMsgId <= 0) THEN
-    Data.nextMsgId := 1;
-END_IF;
-Data.buffer[length] := DWORD_TO_BYTE(SHR(IN := INT_TO_DWORD(Data.nextMsgId), N := 8));
-length := length + 1;
-Data.buffer[length] := INT_TO_BYTE(Data.nextMsgId) AND B#16#FF;
-length := length + 1;
-length := writeString(iStr := holdstring, pos := length);
-Data.buffer[length] := 0; //qos 0
-length := length + 1;
-write(header := INT_TO_BYTE(Globals.MQTTSUBSCRIBE), length := length-5);
-END_FUNCTION
-(**************************************************************)
-
-FUNCTION connect : VOID
-VAR_INPUT
-    id : STRING[20];
-END_VAR
-VAR_TEMP
-    local_id : STRING[20];
-    result : INT;
-    length : INT;
-
-    j : INT;
-    d : ARRAY[0..6] OF BYTE;
-    llen : INT;
-    _len : INT;
-END_VAR
-BEGIN
-local_id := id;
-result := 0;
-Data.nextMsgId := 1;
-length := 5;
-d[0]:=B#16#00;d[1]:=B#16#04;d[2]:=B#16#4D;d[3]:=B#16#51;d[4]:=B#16#54;d[5]:=B#16#54;d[6]:=B#16#04;
-
-// header
-FOR j := 0 TO 6 DO
-    Data.buffer[length] := d[j];
-    length := length + 1;
-END_FOR;
-
-// no user, pass, willTopic
-Data.buffer[length] := B#16#00;
-length := length + 1;
-
-// timeout - TIME_TO_DINT gives ms
-Data.buffer[length] := DWORD_TO_BYTE(SHR(IN := DINT_TO_DWORD(TIME_TO_DINT(Globals.MQTT_KEEPALIVE)/1000), N := 8));
-length := length + 1;
-Data.buffer[length] := DINT_TO_BYTE(TIME_TO_DINT(Globals.MQTT_KEEPALIVE)/1000);
-length := length + 1;
-
-// client id
-length := writeString(iStr := local_id, pos := length);
-
-// write conenct header
-write(header := INT_TO_BYTE(Globals.MQTTCONNECT), length := length-5);
-
-Data.lastInActivity := Data.runTime;
-Data.lastOutActivity := Data.lastInActivity;
-
-Data._state := Globals.MQTT_CONNECTING;
-END_FUNCTION
-(**************************************************************)
 
 
-(* 
-   Connect method
-   Please read http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html, section 3.1 CONENCT
-*)
-FUNCTION connectWithAuth : VOID
 
-VAR_INPUT
-    id           : STRING[20];
-    withUsername : BOOL := 0;
-    withPassword : BOOL := 0;
-    cleanSession : BOOL := 0;
-    withWill     : BOOL := 0;
-    willQos      : INT := 0;
-    willRetain   : BOOL := 0;
-    willTopic    : STRING[50] := '';
-    willPayload  : ANY;
-    willPayloadLength : INT := 0;
-    username     : STRING[127] := '';
-    password     : STRING[127] := '';
-END_VAR
-VAR_TEMP
-    local_id : STRING[20];
-    local_username : STRING[127];
-    local_password : STRING[127];
-    result : INT;
-    length : INT;
-    
-    fixedHeader : BYTE;
-    holdstring : STRING[50];
-    
-    ptrWillPayload : ANY;
-    structWillPtrPayload AT ptrWillPayload : UDT100;
-    
-    ret : INT;
-    i : INT;
-    j : INT;
-    d : ARRAY[0..6] OF BYTE;
-    llen : INT;
-    _len : INT;
-END_VAR
-
-BEGIN
-local_id := id;
-local_username := username;
-local_password := password;
-result := 0;
-Data.nextMsgId := 1;
-length := 5;
-d[0]:=B#16#00;d[1]:=B#16#04;d[2]:=B#16#4D;d[3]:=B#16#51;d[4]:=B#16#54;d[5]:=B#16#54;d[6]:=B#16#04;
-
-// header
-FOR j := 0 TO 6 DO
-    Data.buffer[length] := d[j];
-    length := length + 1;
-END_FOR;
-
-// Set Flags for username and password, cleanSession,
-Data.buffer[length] := 0;
-Data.buffer[length] := Data.buffer[length] OR SHL(IN:=BOOL_TO_BYTE(withUsername),N:=7) OR SHL(IN:=BOOL_TO_BYTE(withPassword),N:=6) OR SHL(IN:=BOOL_TO_BYTE(cleanSession),N:=1);
-
-// set all will flags and will qos if with will
-IF withWill = true THEN
-    Data.buffer[length] := Data.buffer[length] OR SHL(IN:=BOOL_TO_BYTE(willRetain),N:=5) OR SHL(IN:=BOOL_TO_BYTE(withWill),N:=2);
-    IF willQos = Globals.MQTTQOS1 THEN
-        Data.buffer[length] := Data.buffer[length] OR SHL(IN:=BOOL_TO_BYTE(true),N:=3);
-    END_IF;
-        IF willQos = Globals.MQTTQOS2 THEN
-        Data.buffer[length] := Data.buffer[length] OR SHL(IN:=BOOL_TO_BYTE(true),N:=4);
-    END_IF;
-END_IF;
-
-length := length + 1;
-
-// timeout - TIME_TO_DINT gives ms
-Data.buffer[length] := DWORD_TO_BYTE(SHR(IN := DINT_TO_DWORD(TIME_TO_DINT(Globals.MQTT_KEEPALIVE)/1000), N := 8));
-length := length + 1;
-Data.buffer[length] := DINT_TO_BYTE(TIME_TO_DINT(Globals.MQTT_KEEPALIVE)/1000);
-length := length + 1;
-
-// client id
-length := writeString(iStr := local_id, pos := length);
-
-
-IF withWill = true THEN
-    // copy will topic to buffer
-    holdstring := willTopic;
-    length := writeString(iStr := holdstring, pos := length);    
-    
-    // copy payload to buffer
-    //ptrBuffer := Data.buffer[length];
-    ptrWillPayload := willPayload;
-    
-    IF willPayloadLength > 0 THEN
-        FOR i:=0 TO willPayloadLength-1 DO
-           ret := BLKMOV(SRCBLK := ptrWillPayload, DSTBLK := Data.buffer[length]); 
-            // what is this?!
-            IF ret <> 0 THEN
-                m23.2 := true;
-                //return
-            END_IF;
-            length := length + 1;
-            structWillPtrPayload.ByteAddressLSB := INT_TO_WORD(WORD_TO_INT(structWillPtrPayload.ByteAddressLSB) + 8);
-        END_FOR;
-    ELSE
-        // if no will payload (willPayloadLength=0) we have to set the two payload length bytes to 0
-        Data.buffer[length] := 0;
-        length := length + 1;
-        Data.buffer[length] := 0;
-        length := length + 1;
-    END_IF;
-END_IF;
-
-// username
-IF withUsername = true THEN
-    length := writeString(iStr := local_username, pos := length);
-END_IF;
-// password
-IF withPassword = true THEN
-    length := writeString(iStr := local_password, pos := length);
-END_IF;
-
-// set package type in header
-fixedHeader := INT_TO_BYTE(Globals.MQTTCONNECT);
-
-// write connect header
-write(header := fixedHeader, length := length-5);
-
-Data.lastInActivity := Data.runTime;
-Data.lastOutActivity := Data.lastInActivity;
-
-Data._state := Globals.MQTT_CONNECTING;
-END_FUNCTION
-(**************************************************************)
