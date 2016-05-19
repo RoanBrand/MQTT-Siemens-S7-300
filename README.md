@@ -38,16 +38,16 @@ The following needs to be setup in you project in Simatic Manager:
 
 1. You must call the MQTT function block in your OB1 program loop.
 2. You need to add the following FBs from the Standard Library:
-   FB63  TSEND
-   FB64  TRCV
-   FB65  TCON
-   FB66  TDISCON
-   FC21  LEN
-   SFB4	 TON
-   SFC6	 RD_SINFO
-   SDV20 BLKMOV
-   SFC58 WR_REC
-   SFC59 RD_REC
+   - FB63  TSEND
+   - FB64  TRCV
+   - FB65  TCON
+   - FB66  TDISCON
+   - FC21  LEN
+   - SFB4	 TON
+   - SFC6	 RD_SINFO
+   - SDV20 BLKMOV
+   - SFC58 WR_REC
+   - SFC59 RD_REC
 
 
 # Example
