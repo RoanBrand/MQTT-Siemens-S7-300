@@ -35,18 +35,8 @@ STRUCT
     MQTT_KEEPALIVE      : TIME := T#15s;
     MQTT_SOCKET_TIMEOUT : TIME := T#15s;
 
-    // TCP/IP States
-    TCP_CONNECTION_LOST :   INT := -3;
-    TCP_CONNECTION_FAILED : INT := -2;
-    TCP_DISCONNECTED    :   INT := -1;
-    TCP_INITIALIZED     :   INT := 0;
-    TCP_CONNECTED       :   INT := 1;
-    
     TCP_RECVBUFFERSIZE  :   INT :=  8192;   // size of TCP receive buffer
     TCP_MAXRECVSIZE     :   INT := 4096;   // TCP max receive packet size
-
-
-
     
     // MQtt States
     MQTT_CONNECTION_TIMEOUT     : INT := -4;
@@ -56,7 +46,7 @@ STRUCT
     MQTT_CONNECTING             : INT := 0;
     MQTT_CONNECTED              : INT := 1;
 
-    MQTT_CONN_ACCEPTED   : INT := 0;
+    MQTT_CONN_ACCEPTED       : INT := 0;
     MQTT_CONN_BAD_PROTOCOL   : INT := 1;
     MQTT_CONN_BAD_CLIENT_ID  : INT := 2;
     MQTT_CONN_SRVUNAVAIL     : INT := 3;
