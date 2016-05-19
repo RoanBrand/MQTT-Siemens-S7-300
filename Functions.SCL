@@ -285,6 +285,7 @@ VAR_TEMP
     length : INT;
     l_topic : STRING[50];
     thisMessageID : INT;
+    fixedHeader : BYTE;
 END_VAR
 BEGIN
 
@@ -307,8 +308,12 @@ length := length + 1;
 // set topic
 length := mqttWriteString(iStr := l_topic, pos := length);
 
+fixedHeader := INT_TO_BYTE(mqttGlobals.MQTTUNSUBSCRIBE);
+// Set Header Flags for duplicates, qos level and retain
+fixedHeader := fixedHeader OR SHL(IN:=BOOL_TO_BYTE(true),N:=1);
+
 // write header and send message
-mqttWrite(header := INT_TO_BYTE(mqttGlobals.MQTTUNSUBSCRIBE), length := length-5);
+mqttWrite(header := fixedHeader, length := length-5);
 END_FUNCTION
 (**************************************************************)
 
