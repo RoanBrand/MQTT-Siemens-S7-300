@@ -220,6 +220,7 @@ BEGIN
     mqttData.buffer[1] := 0;
     mqttSendTCP(offset := 0, size := 2);
     mqttData.lastOutActivity := mqttData.runTime;
+    mqttData._state := mqttGlobals.MQTT_DISCONNECTED; //
 END_FUNCTION
 
 
