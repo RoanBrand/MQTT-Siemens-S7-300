@@ -15,8 +15,10 @@ Developers can use it to build customized dashboards (physical, website, or mobi
 
 ### Current Test Scenario:
 At this time, this is tested on
+
 - CPU315-2 PN/DP (315-2EH14-0AB0) with internal Ethernet
-- CPU314C-2 PN/DP (314-6EH04-0AB0) with CP343-1 (343-1EX30-0XE0)and .
+- CPU314C-2 PN/DP (314-6EH04-0AB0) with CP343-1 (343-1EX30-0XE0) external Ethernet
+
 The PLC is connected to a Mosquitto MQtt broker.
 All main functionallity has been testet: connect, disconnect, subscribe, unsubscribe, ping, publish.
 I am locally connecting to a Mosquitto broker.
@@ -26,6 +28,8 @@ I am locally connecting to a Mosquitto broker.
 - not all MQtt policies described in the MQtt v3.1.1 standard are exactly standard conform implemented
   Especially the code must be reviewed wether it conforms to all the yellowish lines in the MQtt documentation
 - subscribe and unsubscribe only for one topic at a time (you can subscribe multiple times if you need several topics)
+- the Siemens PLC Ethernet adapters can send/receive *8192 bytes max.* per transmission. Please refer to the Simatic Menager help for the corresponding FBs/FCs
+
 
 ### Todo:
 - state machine for tcp and mqtt should be harmonized
@@ -61,8 +65,53 @@ The following needs to be setup in you project in Simatic Manager:
    - SFC58 WR_REC
    - SFC59 RD_REC
 
+## Network Configuration
+The MQTT FB can use the internal Ethernet adapter of a CPU (PN) or an external Ethernet adapter (CP).
+
+Remarks for internal Ethernet (PN) adapter configuration:
+- The IP-Address of the internal adapter has to be configured within the hardware configuration tool (HW Config), click on the PN-IO object
+- The remote IP and Port parameters are configured via an UDT structure (UDT1 or whatever the UDTx number is). Create a DB out of it and modify the network parameters according to your needs:
+ - connection_type: must be B#16#11
+ - rem_staddr:  The IP address in bytes (6 byte array). The last 4 bytes must be B#16#0
+ - rem_tsap_id: The remote Port in bytes (16 byte array). For an MQtt broker this is usually 1883 (B#16#7, B#16#D0). The last 14 bytes must be B#16#0.
+ - you must pass the network parameters DB of type (UDT1 or whatever the UDTx number is) to the MQTT Functionblock parameter net_config.
+ - you must set the MQTT Functionblock parameter PNorCP to 0 (PN=0, CP=1)
+ - you must set the MQTT Functionblock parameter connectionID to a desired value, f.e. 1
+ - you must set the MQTT Functionblock parameter is not needed for the PN configuration
+Example for a MQTT FB call in OB1 configured for internal Ethernet (PN) usage:
+*MQTT.DB71(net_config := DB72_NET_CONFIG, PNorCP := 0, connectionID := 1);*
+
+ Remarks for external Ethernet (CP) adapter configuration:
+ - The IP-Address of the internal adapter has to be configured within the hardware configuration tool (HW Config), click on the PN-IO object
+ - The connection must be configured in Simatic Manager "Connections"
+ - you must pass the network parameters DB of type (UDT1 or whatever the UDTx number is) to the MQTT Functionblock parameter net_config, however no configuration is needed because it is ignored.
+ - you must set the MQTT Functionblock parameter PNorCP to 1 (PN=0, CP=1)
+ - you must set the MQTT Functionblock parameter connectionID to the connection ID configured in Simatic Manager "Connections"
+ - you must set the MQTT Functionblock parameter cpLADDR to the address of the CP module.
+ Example for a MQTT FB call in OB1 configured for external Ethernet (CP)usage:
+*MQTT.DB71(net_config := DB72_NET_CONFIG, PNorCP := 1, connectionID := 1, cpLADDR := W#16#100);*
+
+## Setup memory footprint
+
+### Setting up buffers
+To reduce the memory usage of the MQtt DBs you can set the receive and transmit buffer sizes.
+
+- Set tcpRecBuf array size in mqttData DB and TCP_RECVBUFFERSIZE in mqttGlobals to the same value (f.e. 8192) of your choice.
+- Set TCP_MAXRECVSIZE in mqttGlobals DB to a value equal or smaller than TCP_RECVBUFFERSIZE
+- Set tcpSendBuf array size in mqttData DB to a value of your choice
+- Set buffer array size in mqttData DB to a value of your choice, but not smaller than the largest value of TCP_MAXRECVSIZE or tcpSendBuf, whoever is larger
+
+Keep in mind: data from tcpRecBuf is transfered to buffer and also data from buffer is tranfered to tcpSendBuf within the Code. So match the sizes appropriately.
+
+### Kickout CP or PN references if not used
+
+All calls to Ethernet functions within the MQTT Functionblock code are implemented as a PN and a CP call. There is a If-Then-Else clause refering to PNorCP Input variable.
+Remove the If-Then-Else clause and keep the Ethernet function call you need.
+
+Don´t break the code :-)
 
 # Example
+
 Included is an example application function block (FB70) that is typically called from OB1.
 Inputs for this block can trigger a MQTT broker connect, publish a message or subscribe to a MQTT channel.
 
