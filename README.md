@@ -59,6 +59,7 @@ The following needs to be setup in you project in Simatic Manager:
    
    Additional Objects needed:
    - FC21  LEN
+   - FC22  EQ_STRNG
    - SFB4  TON
    - SFC6  RD_SINFO
    - SDV20 BLKMOV
@@ -74,22 +75,22 @@ Remarks for internal Ethernet (PN) adapter configuration:
  - connection_type: must be B#16#11
  - rem_staddr:  The IP address in bytes (6 byte array). The last 4 bytes must be B#16#0
  - rem_tsap_id: The remote Port in bytes (16 byte array). For an MQtt broker this is usually 1883 (B#16#7, B#16#D0). The last 14 bytes must be B#16#0.
- - you must pass the network parameters DB of type (UDT1 or whatever the UDTx number is) to the MQTT Functionblock parameter net_config.
+ - you must pass the network parameters DB of type UDT NET_CONFIG to the MQTT Functionblock parameter net_config.
  - you must set the MQTT Functionblock parameter PNorCP to 0 (PN=0, CP=1)
  - you must set the MQTT Functionblock parameter connectionID to a desired value, f.e. 1
  - you must set the MQTT Functionblock parameter is not needed for the PN configuration
 Example for a MQTT FB call in OB1 configured for internal Ethernet (PN) usage:
-*MQTT.DB71(net_config := DB72_NET_CONFIG, PNorCP := 0, connectionID := 1);*
+*MQTT.DB71(net_config := DB_NET_CONFIG, PNorCP := 0, connectionID := 1);*
 
  Remarks for external Ethernet (CP) adapter configuration:
  - The IP-Address of the internal adapter has to be configured within the hardware configuration tool (HW Config), click on the PN-IO object
  - The connection must be configured in Simatic Manager "Connections"
- - you must pass the network parameters DB of type (UDT1 or whatever the UDTx number is) to the MQTT Functionblock parameter net_config, however no configuration is needed because it is ignored.
+ - you must pass the network parameters DB of type UDT NET_CONFIG to the MQTT Functionblock parameter net_config, however no configuration is needed because it is ignored.
  - you must set the MQTT Functionblock parameter PNorCP to 1 (PN=0, CP=1)
  - you must set the MQTT Functionblock parameter connectionID to the connection ID configured in Simatic Manager "Connections"
  - you must set the MQTT Functionblock parameter cpLADDR to the address of the CP module.
  Example for a MQTT FB call in OB1 configured for external Ethernet (CP)usage:
-*MQTT.DB71(net_config := DB72_NET_CONFIG, PNorCP := 1, connectionID := 1, cpLADDR := W#16#100);*
+*MQTT.DB71(net_config := DB_NET_CONFIG, PNorCP := 1, connectionID := 1, cpLADDR := W#16#100);*
 
 ## Setup memory footprint
 
