@@ -20,9 +20,9 @@ STRUCT
     lastInActivity : TIME;
     lastOutActivity : TIME;
     runTime : TIME;
-    ethConnected : BOOL;
+    ethTCPConnected : BOOL;
     
-    connErrorCode : INT := 0;
+    mqttErrorCode : INT := 0;
     recPublishPacketID : INT := 0;
     
 END_STRUCT
