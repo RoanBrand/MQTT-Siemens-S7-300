@@ -1,5 +1,5 @@
 # MQTT-Siemens-S7-300
-MQTT library block written in SCL for S7-300 with *internal* Ethernet.
+MQTT library block written in SCL for S7-300 with *internal* (PN) or *external* (CP) Ethernet.
 
 This started as a port of [knolleary's MQTT library](https://github.com/knolleary/pubsubclient) for Arduino & ESP8266.
 The implementation is following the MQtt v3.1.1 protocol documentation (http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html)
@@ -14,7 +14,10 @@ MQTT will enable a PLC to connect to the cloud without using proprietary hardwar
 Developers can use it to build customized dashboards (physical, website, or mobile device), providing valuable data for analytics and business. MQTT enabled IO could serve as an inexpensive alternative for the PLC. (although not recommended for mission critical IO and for safety reasons)
 
 ### Current Test Scenario:
-At this time, this is tested on CPU315-2 PN/DP (315-2EH14-0AB0. The PLC is connected to a Mosquitto MQtt broker.
+At this time, this is tested on
+- CPU315-2 PN/DP (315-2EH14-0AB0) with internal Ethernet
+- CPU314C-2 PN/DP (314-6EH04-0AB0) with CP343-1 (343-1EX30-0XE0)and .
+The PLC is connected to a Mosquitto MQtt broker.
 All main functionallity has been testet: connect, disconnect, subscribe, unsubscribe, ping, publish.
 I am locally connecting to a Mosquitto broker.
 
@@ -38,13 +41,22 @@ The following needs to be setup in you project in Simatic Manager:
 
 1. You must call the MQTT function block in your OB1 program loop.
 2. You need to add the following FBs from the Standard Library:
+
+   For internal Ethernet:
    - FB63  TSEND
    - FB64  TRCV
    - FB65  TCON
    - FB66  TDISCON
+   
+   For external Ethernet (CP):
+   - FC5   AG_SEND
+   - FC6   AG_RECV
+   - FC10  AG_CTRL
+   
+   Additional Objects needed:
    - FC21  LEN
-   - SFB4	 TON
-   - SFC6	 RD_SINFO
+   - SFB4  TON
+   - SFC6  RD_SINFO
    - SDV20 BLKMOV
    - SFC58 WR_REC
    - SFC59 RD_REC
