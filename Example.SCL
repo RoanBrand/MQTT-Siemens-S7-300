@@ -61,7 +61,7 @@ BEGIN
 (* OTHER *)
 
     // Automatic reconnect example if needed
-    IF mqttData.ethConnected AND (mqttData._State < 0) THEN
+    IF mqttData.ethTCPConnected AND (mqttData._State < 0) THEN
         //connect(id := 'CPU313C');
         mqttCONNECT(clientID := 'CPU313C',withUsername:=false,withPassword:=false,cleanSession:=true,withWill:=true,willQos:=0,willRetain:=0,willTopic:='Connection Lost',willPayload:=willData[0],willPayloadLength:=0,username:='a',password:='b');
     END_IF;
