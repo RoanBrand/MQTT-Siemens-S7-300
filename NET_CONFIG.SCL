@@ -29,3 +29,11 @@ VERSION : 2.1
         spare               : WORD ;    //#!PC_FMS!#              
     END_STRUCT
 END_TYPE
+
+
+
+DATA_BLOCK DB_NET_CONFIG  NET_CONFIG
+BEGIN
+
+END_DATA_BLOCK
+
