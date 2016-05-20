@@ -1,21 +1,8 @@
 (* ToDo:
-- make one state machine for tcp and mqtt (maybe)
-- implement internal and external interface via parameter for MQtt FB
-- if network interrupt and packet must be send keep sending request, eventually based on QOS.
-  Also give back error feedback from FB
 - connection ID automatic new ID back?!
 - MQtt Publish received: act as QoS wants
 *)
 
-(*
-FUNCTION mqttCheckIfConnected : BOOL
-    BEGIN
-    mqttConnected := mqttData.ethConnected;
-    IF NOT mqttConnected AND (mqttData._state = mqttGlobals.MQTT_CONNECTED) THEN
-        mqttData._state := mqttGlobals.MQTT_CONNECTION_LOST;
-    END_IF;
-END_FUNCTION
-*)
 (**************************************************************)
 
 FUNCTION_BLOCK MQTT
@@ -119,8 +106,10 @@ VAR
     myPacketReader : mqttPacketReader;      // MQTT PacketReader Instance
     msgId : INT;
     typeOfPacket : INT;
+    
     runTimer : SFB4;
     resetTime : TIME;
+    
     tl : INT;
     paylPos : INT;
     paylSize : INT;
@@ -129,18 +118,18 @@ VAR
     recBufLeft : INT;
 
     // Send TCP State
-    act_send : BOOL;
-    snd_busy : BOOL;
-    last_snd_err: WORD;
+    act_send     : BOOL;
+    snd_busy     : BOOL;
+    last_snd_err : WORD;
     
     // Receive TCP State
     last_rec_err : WORD;
 
     // Control TCP State
-    cntrl_done : BOOL;
-    cntrl_error : BOOL;
-    cntrl_status : WORD;
-    cntrl_lastErrStatus : WORD;
+    cntrl_done             : BOOL;
+    cntrl_error            : BOOL;
+    cntrl_status           : WORD;
+    cntrl_lastErrStatus    : WORD;
     cntrl_res1, cntrl_res2 : DWORD;
     
     netcmd_success : BOOL := false;
@@ -150,16 +139,16 @@ VAR
     netcmd_datareceived : BOOL := false;
     netcmd_datalength   : INT;
     
-    NET_CON: TCON;
-    NET_DISCON: TDISCON;
-    NET_SEND: TSEND;
-    NET_RCV: TRCV;
+    NET_CON    : TCON;
+    NET_DISCON : TDISCON;
+    NET_SEND   : TSEND;
+    NET_RCV    : TRCV;
 END_VAR
 
 VAR_INPUT
     net_config : NET_CONFIG;         // UDT with network configuration as input
-    PNorCP     : BOOL := PN;          // 0 for PN, 1 for CP Ethernet
-    cpConnID   : INT  := 1;          // S7 Connection ID for CP Ethernet
+    PNorCP     : BOOL := PN;         // 0 for PN, 1 for CP Ethernet
+    connectionID   : INT  := 1;      // S7 Connection ID for CP Ethernet
     cpLADDR    : WORD := W#16#0100;  //  S7 LADDR for CP Ethernet
 END_VAR
 
@@ -176,8 +165,8 @@ BEGIN
 intTemp := RD_SINFO (TOP_SI := TOP_SI, START_UP_SI := START_UP_SI);
 IF TOP_SI.EV_NUM <> 3 THEN
     tcpState := TCP_STATE_UNINITIALIZED;
-    mqttData.ethConnected := false;
-    mqttData._state := mqttGlobals.MQTT_CONNECTION_LOST;
+    mqttData.ethTCPConnected := false;
+    mqttData._state := MQTT_STATE_DISCONNECTED;
 END_IF;
 
 
@@ -189,30 +178,31 @@ END_IF;
 CASE (tcpState) OF
     
     TCP_STATE_UNINITIALIZED:
+        mqttData.ethTCPConnected := false;
         tcpState := TCP_STATE_INITIALIZING;
     ;
     
     TCP_STATE_INITIALIZING:
         IF PNorCP = PN THEN
             NET_CON(REQ :=  false // IN: BOOL
-                    ,ID := W#16#1 // IN: WORD
+                    ,ID := INT_TO_WORD(connectionID) // IN: WORD
                     ,CONNECT := net_config // INOUT: ANY
                    ); 
         
             NET_SEND(REQ := false // IN: BOOL
-                     ,ID := W#16#1 // IN: WORD
+                     ,ID := INT_TO_WORD(connectionID) // IN: WORD
                      ,LEN :=  0// IN: INT
                      ,DATA := mqttData.tcpSendBuf // INOUT: ANY
                     ); 
         
             NET_RCV(EN_R := false // IN: BOOL
-                    ,ID := W#16#1 // IN: WORD
+                    ,ID := INT_TO_WORD(connectionID) // IN: WORD
                     ,LEN := 0 // IN: INT
                     ,DATA := tcpRecByte // INOUT: ANY
                    ); 
          
             NET_DISCON(REQ := false // IN: BOOL
-                       ,ID := W#16#1 // IN: WORD
+                       ,ID := INT_TO_WORD(connectionID) // IN: WORD
                       );
         END_IF;
         
@@ -226,7 +216,7 @@ CASE (tcpState) OF
     TCP_STATE_CONNECTING:
         IF PNorCP = PN THEN
             NET_CON(REQ := true // IN: BOOL
-                    ,ID := W#16#1 // IN: WORD
+                    ,ID := INT_TO_WORD(connectionID) // IN: WORD
                     ,CONNECT := net_config // INOUT: ANY
                    ); 
                    netcmd_success := NET_CON.DONE; // OUT: BOOL
@@ -235,11 +225,14 @@ CASE (tcpState) OF
          
            IF netcmd_success AND (netcmd_status = W#16#0) THEN
                 tcpState := TCP_STATE_CONNECTED;
-                mqttData.ethConnected := true;
+                mqttData.ethTCPConnected := true;
+           END_IF;
+           IF netcmd_error THEN
+                cntrl_lastErrStatus := netcmd_error;
            END_IF;
         ELSE
             AG_CNTRL(ACT := 1,
-                     ID := cpConnID,
+                     ID := connectionID,
                      LADDR := cpLADDR,
                      CMD := CN_STATUS,
                      DONE => netcmd_success,
@@ -248,13 +241,24 @@ CASE (tcpState) OF
                      RESULT1 => cntrl_res1,
                      RESULT2 => cntrl_res2
                     );
+            IF netcmd_success AND NOT netcmd_error THEN
+                // Check bits 12+13 (connection status, 11=>connection establishes)
+                // AND bit 14 (CP state : run=1, stop=0) by apply and compare bitmask hex 7000
+                IF ((DWORD_TO_WORD(cntrl_res1) AND W#16#7000) = W#16#7000) THEN
+                    tcpState := TCP_STATE_CONNECTED;
+                    mqttData.ethTCPConnected := true;
+                END_IF;
+            END_IF;
+            IF netcmd_error THEN
+                cntrl_lastErrStatus := cntrl_status;
+            END_IF;
         END_IF;
     ;
     
     TCP_STATE_CONNECTED:
         IF PNorCP = CP THEN
             AG_CNTRL(   ACT := 1,
-                        ID := cpConnID,
+                        ID := connectionID,
                         LADDR := cpLADDR,
                         CMD := CN_STATUS,
                         DONE => netcmd_success,
@@ -265,30 +269,40 @@ CASE (tcpState) OF
             );
             
             IF netcmd_success AND NOT netcmd_error THEN
-                mqttData.ethConnected := ((DWORD_TO_WORD(cntrl_res1) AND W#16#7000) = W#16#7000);
+                // Check bits 12+13 (connection status, 11=>connection establishes)
+                // AND bit 14 (CP state : run=1, stop=0) by apply and compare bitmask hex 7000
+                IF NOT ((DWORD_TO_WORD(cntrl_res1) AND W#16#7000) = W#16#7000) THEN
+                    tcpState := TCP_STATE_DISCONNECTED;
+                    mqttData.ethTCPConnected := false;
+                END_IF;
             END_IF;
+            
             IF netcmd_error THEN
+                // the CP reported an error, reset the connection
+                tcpState := TCP_STATE_DISCONNECTED;
+                mqttData.ethTCPConnected := false;
                 cntrl_lastErrStatus := cntrl_status;
             END_IF;
         END_IF;
     ;
     
     TCP_STATE_DISCONNECTING:
+        mqttData.ethTCPConnected := false;
+        
         IF PNorCP = PN THEN
             NET_DISCON(REQ := true // IN: BOOL
-                       ,ID := W#16#1 // IN: WORD
+                       ,ID := INT_TO_WORD(connectionID) // IN: WORD
                       );
                       netcmd_success := NET_DISCON.DONE; // OUT: BOOL
                       netcmd_busy    := NET_DISCON.BUSY; // OUT: BOOL
                       netcmd_error   := NET_DISCON.ERROR; // OUT: BOOL
                       netcmd_status  := NET_DISCON.STATUS; // OUT: WORD
-           
             IF netcmd_success THEN
                 tcpState := TCP_STATE_DISCONNECTED;
             END_IF;
         ELSE
             AG_CNTRL(   ACT := 1,
-                        ID := cpConnID,
+                        ID := connectionID,
                         LADDR := cpLADDR,
                         CMD := CN_RESET,
                         DONE => netcmd_success,
@@ -297,10 +311,17 @@ CASE (tcpState) OF
                         RESULT1 => cntrl_res1,
                         RESULT2 => cntrl_res2
             );
+            IF netcmd_success AND NOT netcmd_error THEN
+                tcpState := TCP_STATE_DISCONNECTED;
+            END_IF;
+            IF netcmd_error THEN
+                cntrl_lastErrStatus := cntrl_status;
+            END_IF;
         END_IF;
      ;
      
      TCP_STATE_DISCONNECTED:
+        mqttData.ethTCPConnected := false;
         tcpState := TCP_STATE_UNINITIALIZED;
      ;
      
@@ -326,16 +347,27 @@ END_IF;
 
 IF PNorCP = PN THEN
     NET_SEND(REQ :=  act_send // IN: BOOL
-             ,ID :=  W#16#1// IN: WORD
+             ,ID :=  INT_TO_WORD(connectionID) // IN: WORD
              ,LEN :=  mqttData.sendSize // IN: INT
              ,DATA := mqttData.tcpSendBuf // INOUT: ANY
              ); 
              netcmd_success := NET_SEND.DONE; // OUT: BOOL
              netcmd_error   := NET_SEND.ERROR; // OUT: BOOL
              netcmd_status  := NET_SEND.STATUS; // OUT: WORD
+             
+   IF netcmd_error AND NOT netcmd_success THEN
+        last_snd_err := netcmd_status;
+        snd_busy := false;
+        
+        IF ((netcmd_status = W#16#80A1) OR (netcmd_status = W#16#80C4)) THEN
+            mqttData.ethTCPConnected := false;
+            mqttData._state := MQTT_STATE_DISCONNECTED;
+            tcpState := TCP_STATE_DISCONNECTING;
+        END_IF;
+    END_IF;
 ELSE
     AG_SEND(ACT := act_send,
-            ID := cpConnID,
+            ID := connectionID,
             LADDR := cpLADDR,
             SEND := mqttData.tcpSendBuf,
             LEN := mqttData.sendSize,
@@ -343,20 +375,12 @@ ELSE
             ERROR => netcmd_error,
             STATUS => netcmd_status
     );
-END_IF;
-
-
-IF netcmd_error AND NOT netcmd_success THEN
-    
-    last_snd_err := netcmd_status;
-    snd_busy := false;
-    
-    IF ((netcmd_status = W#16#80A1) OR (netcmd_status = W#16#80C4)) THEN
-        mqttData.ethConnected := false;
-        mqttData._state := mqttGlobals.MQTT_CONNECTION_LOST;
-        tcpState := TCP_STATE_DISCONNECTING;
+    IF netcmd_error AND NOT netcmd_success THEN
+        last_snd_err := netcmd_status;
+        snd_busy := false;
     END_IF;
 END_IF;
+
 
 IF (act_send) THEN
     act_send := false;
@@ -372,7 +396,7 @@ END_IF;
 
 IF PNorCP = PN THEN
     NET_RCV(EN_R  := true // IN: BOOL
-            ,ID   := W#16#1 // IN: WORD
+            ,ID   := INT_TO_WORD(connectionID) // IN: WORD
             ,LEN  := netcmd_datalength // IN: INT
             ,DATA := tcpRecByte // INOUT: ANY
            ); 
@@ -380,8 +404,14 @@ IF PNorCP = PN THEN
            netcmd_error        := NET_RCV.ERROR; // OUT: BOOL
            netcmd_status       := NET_RCV.STATUS; // OUT: WORD
            netcmd_datalength   := NET_RCV.RCVD_LEN; // OUT: INT
+           
+    IF netcmd_error AND  ((netcmd_status = W#16#80A1) OR (netcmd_status = W#16#80C4)) THEN
+        last_rec_err := netcmd_status;
+        mqttData._state := MQTT_STATE_DISCONNECTED;
+        tcpState := TCP_STATE_DISCONNECTING;
+    END_IF;
 ELSE
-    AG_RECV(    ID := cpConnID,
+    AG_RECV(    ID := connectionID,
                 LADDR := cpLADDR,
                 RECV := tcpRecByte,
                 NDR => netcmd_datareceived,
@@ -389,14 +419,11 @@ ELSE
                 STATUS => netcmd_status,
                 LEN => netcmd_datalength
     );
+    IF netcmd_error THEN
+        last_rec_err := netcmd_status;
+    END_IF;
 END_IF;
 
-IF netcmd_error AND  ((netcmd_status = W#16#80A1) OR (netcmd_status = W#16#80C4)) THEN
-    last_rec_err := netcmd_status;
-    mqttData.ethConnected := false;
-    mqttData._state := mqttGlobals.MQTT_CONNECTION_LOST;
-    tcpState := TCP_STATE_DISCONNECTING;
-END_IF;
 
 IF netcmd_datareceived THEN
     IF mqttData.RecBufFull THEN
@@ -437,13 +464,13 @@ CASE (mqttData._state) OF
     
     MQTT_STATE_DISCONNECTED:
         lastState := mqttData._state;
-        IF ((mqttData.runTime - t#10s) > resetTime) AND NOT mqttData.ethConnected THEN
-            resetTime := mqttData.runTime;
-            
+        // TODO: what is this for?
+        IF ((mqttData.runTime - t#10s) > resetTime) AND NOT mqttData.ethTCPConnected THEN
+            resetTime := mqttData.runTime;        
         END_IF;
     ;
     
-    MQTT_STATE_CONNECTING: 
+    MQTT_STATE_CONNECTING:  // this state is triggered by mqttConnect FC
         IF (mqttData._state <> lastState) THEN
             intState := WAIT_FOR_RECEIVED_PACKET;
             lastState := mqttData._state;
@@ -465,17 +492,18 @@ CASE (mqttData._state) OF
                 IF (myPacketReader.xDone) THEN
                     
                     typeOfPacket := BYTE_TO_INT(mqttData.buffer[0] AND B#16#F0);
+                    
                     IF(typeOfPacket = mqttGlobals.MQTTCONNACK) THEN
-                    //IF (myPacketReader.result = 4) THEN
+                        mqttData.lastInActivity := mqttData.runTime;
+                        mqttData.pingOutstanding := false;
+                        
                         IF BYTE_TO_INT(mqttData.buffer[3]) = mqttGlobals.MQTT_CONN_ACCEPTED THEN
-                            mqttData.lastInActivity := mqttData.runTime;
-                            mqttData.pingOutstanding := false;
                             mqttData._state := MQTT_STATE_CONNECTED;
                         ELSE
                             // MQTT Connection Error!
                             mqttData._state := MQTT_STATE_DISCONNECTED;
                             callbackPacketType := MQTT_CONNACK;
-                            mqttData.connErrorCode := BYTE_TO_INT(mqttData.buffer[3]);
+                            mqttData.mqttErrorCode := BYTE_TO_INT(mqttData.buffer[3]);
                             callback := true;
                         END_IF;
                     // ELSE maybe need equivalent/workaround to client->stop()
@@ -495,7 +523,6 @@ CASE (mqttData._state) OF
             IF (mqttData.pingOutstanding) THEN
                 // Timeout!
                 mqttData._state := MQTT_STATE_DISCONNECTED;
-                // need recovery
             ELSE
                 mqttData.buffer[0] := INT_TO_BYTE(mqttGlobals.MQTTPINGREQ);
                 mqttData.buffer[1] := 0;
