@@ -4,7 +4,7 @@
 
 *)
 
-TYPE UDT100
+TYPE UDT_STRUCTANYPTR
 TITLE = DISSASEMBLED ANYPOINTER
     STRUCT
         S7Code : BYTE; // Code for S7 = 0x10
@@ -66,7 +66,7 @@ VAR_TEMP
     fixedHeader    : BYTE;
     
     ptrWillPayload : ANY;
-    structWillPtrPayload AT ptrWillPayload : UDT100;
+    structWillPtrPayload AT ptrWillPayload : UDT_STRUCTANYPTR;
     
     ret  : INT;
     i    : INT;
@@ -345,15 +345,15 @@ VAR_TEMP
     thisMessageID : INT;
     
     tdata : ANY;
-    pdata AT tdata : UDT100;
+    pdata AT tdata : UDT_STRUCTANYPTR;
     
     ret : INT;
     
     ptrBuffer : ANY;
-    structPtrBuffer AT ptrBuffer : UDT100;
+    structPtrBuffer AT ptrBuffer : UDT_STRUCTANYPTR;
     
     ptrPayload : ANY;
-    structPtrPayload AT ptrPayload : UDT100;
+    structPtrPayload AT ptrPayload : UDT_STRUCTANYPTR;
 END_VAR
 BEGIN
 
