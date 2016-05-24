@@ -40,32 +40,43 @@ I am locally connecting to a Mosquitto broker.
 It should work with most S7-300 CPU's.
 This code is written in Step7 SCL v5.3 SP1. It probably needs modification for it to compile in TIA.
 
-# How to Use
+# How to Compile/Use in your project
 The following needs to be setup in you project in Simatic Manager:
 
-1. You must call the MQTT function block in your OB1 program loop.
-2. You need to add the following FBs from the Standard Library:
+1. In SCL Editor Options->Customize set "Create block numbers automatically"
 
-   For internal Ethernet:
+2. You need to add the following Objects Library to your project:
+
+   *For internal Ethernet:*
+   Library: Standard Library -> Communication Blocks -> Blocks
    - FB63  TSEND
    - FB64  TRCV
    - FB65  TCON
    - FB66  TDISCON
    
-   For external Ethernet (CP):
+
+   *For external Ethernet (CP):*
+   Library: SIMATIC_NET_PC -> CP300
    - FC5   AG_SEND
    - FC6   AG_RECV
    - FC10  AG_CTRL
    
-   Additional Objects needed:
+   *Additional Objects needed:*
+   Library: IEC Function Blocks
    - FC21  LEN
    - FC22  EQ_STRNG
+   Library: System Function Block
    - SFB4  TON
    - SFC6  RD_SINFO
-   - SDV20 BLKMOV
+   - SFC20 BLKMOV
    - SFC58 WR_REC
    - SFC59 RD_REC
 
+3. You have to compile the Makefile two times because there is still some DB creation problem.
+   The second run will succeed.
+
+4. You must call the MQTT function block in your OB1 program loop.
+   
 ## Network Configuration
 The MQTT FB can use the internal Ethernet adapter of a CPU (PN) or an external Ethernet adapter (CP).
 
