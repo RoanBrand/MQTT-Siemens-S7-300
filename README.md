@@ -34,10 +34,9 @@ I am locally connecting to a Mosquitto broker.
 ### Todo:
 - state machine for tcp and mqtt should be harmonized
 - MQtt policies review for the code
-- implementation of internal and external ethernet usage
 
 # Requirements
-It should work with most S7-300 CPU's.
+It should work with most S7-300/400 CPU's.
 This code is written in Step7 SCL v5.3 SP1. It probably needs modification for it to compile in TIA.
 
 # How to Compile/Use in your project
@@ -84,21 +83,15 @@ The MQTT FB can use the internal Ethernet adapter of a CPU (PN) or an external E
 
 Remarks for internal Ethernet (PN) adapter configuration:
 - The IP-Address of the internal adapter has to be configured within the hardware configuration tool (HW Config), click on the PN-IO object
-- The remote IP and Port parameters are configured via an UDT structure (UDT1 or whatever the UDTx number is). Create a DB out of it and modify the network parameters according to your needs:
- - connection_type: must be B#16#11
- - rem_staddr:  The IP address in bytes (6 byte array). The last 4 bytes must be B#16#0
- - rem_tsap_id: The remote Port in bytes (16 byte array). For an MQtt broker this is usually 1883 (B#16#7, B#16#D0). The last 14 bytes must be B#16#0.
- - you must pass the network parameters DB of type UDT NET_CONFIG to the MQTT Functionblock parameter net_config.
- - you must set the MQTT Functionblock parameter PNorCP to 0 (PN=0, CP=1)
+- The remote IP and Port parameters are configured via parameters for the MQTT Function Block (ipBlock1-4,ipPort)
+ - you must set the MQTT Functionblock parameter PNorCP to 0 (internal Ethernet (PN)=0, external Ethernet (CP)=1)
  - you must set the MQTT Functionblock parameter connectionID to a desired value, f.e. 1
- - you must set the MQTT Functionblock parameter is not needed for the PN configuration
 Example for a MQTT FB call in OB1 configured for internal Ethernet (PN) usage:
 *MQTT.DB71(net_config := DB_NET_CONFIG, PNorCP := 0, connectionID := 1);*
 
  Remarks for external Ethernet (CP) adapter configuration:
  - The IP-Address of the internal adapter has to be configured within the hardware configuration tool (HW Config), click on the PN-IO object
  - The connection must be configured in Simatic Manager "Connections"
- - you must pass the network parameters DB of type UDT NET_CONFIG to the MQTT Functionblock parameter net_config, however no configuration is needed because it is ignored.
  - you must set the MQTT Functionblock parameter PNorCP to 1 (PN=0, CP=1)
  - you must set the MQTT Functionblock parameter connectionID to the connection ID configured in Simatic Manager "Connections"
  - you must set the MQTT Functionblock parameter cpLADDR to the address of the CP module.
@@ -129,6 +122,7 @@ Don´t break the code :-)
 Included is an example application function block (FB70) that is typically called from OB1.
 Inputs for this block can trigger a MQTT broker connect, publish a message or subscribe to a MQTT channel.
 
+There is also some example code for calculating a payload CRC to check the data integrity.  The used CRC_GEN function can be found in the oscat.de PLC library.
 
 ### Notes
 Porting C++ to Siemens SCL has taught many differences between systems. Differences include:
