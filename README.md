@@ -28,7 +28,7 @@ I am locally connecting to a Mosquitto broker.
 - not all MQtt policies described in the MQtt v3.1.1 standard are exactly standard conform implemented
   Especially the code must be reviewed wether it conforms to all the yellowish lines in the MQtt documentation
 - subscribe and unsubscribe only for one topic at a time (you can subscribe multiple times if you need several topics)
-- the Siemens PLC Ethernet adapters can send/receive *8192 bytes max.* per transmission. Please refer to the Simatic Menager help for the corresponding FBs/FCs
+- the Siemens PLC Ethernet adapters can send/receive *8192 bytes max.* per transmission. Please refer to the Simatic Manager help pages for the corresponding FBs/FCs
 
 
 ### Todo:
