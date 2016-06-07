@@ -21,6 +21,7 @@ VAR
     pubAckReceived : BOOL :=0;
     payloadInt : INT := 0;
     myPublishMessageID : INT := 0;
+    // CRC : CRC_Gen;  // optional: using CRC_GEN function for CRC calculation from oscat.de PLC Library
 END_VAR
 BEGIN
                    
@@ -42,7 +43,24 @@ BEGIN
     
     // Make pub high to publish
     IF pub AND NOT fpub THEN
-        myPublishMessageID := mqttPUBLISH(topic := 'SIEMENSTOPIC', payload := publishData[0], payloadLength := 800, qos := mqttGlobals.MQTTQOS2, retain := false, duplicate := false);
+        
+        (*
+        // optional: CRC calculation for payload with CRC_GEN from oscat.de PLC library, f.e. CRC-8
+        CRC(PT :=  publishData[0] // IN: POINTER
+                      ,SIZE := 36  // IN: INT
+                      ,PL := 8 // IN: INT
+                      ,PN := W#16#0007 // IN: DWORD
+                      ,INIT := 0 // IN: DWORD
+                      ,REV_IN := false   // IN: BOOL
+                      ,REV_OUT := false // IN: BOOL
+                      ,XOR_OUT := 0 // IN: DWORD
+                      ); 
+                    DB70.dbd40 := CRC.CRC_GEN; // OUT: DWORD, CRC to the end of the payload
+         *)           
+
+                     
+         
+        myPublishMessageID := mqttPUBLISH(topic := 'SIEMENSTOPIC', payload := publishData[0], payloadLength := 40, qos := mqttGlobals.MQTTQOS2, retain := false, duplicate := false);
     END_IF;
     fpub := pub;
 
@@ -97,6 +115,7 @@ BEGIN
 
 END_FUNCTION_BLOCK
 
+
 (* OB1 Cyclic execution by PLC *)
 ORGANIZATION_BLOCK OB1
 VAR_TEMP
@@ -105,10 +124,17 @@ VAR_TEMP
     // Temporary Variables
 END_VAR
 
-MQTT.DB71(net_config := DB_NET_CONFIG, PNorCP := 1, connectionID := 1, cpLADDR := W#16#100);    // MQTT Library loop (Must be called in every App)
+MQTT.DB71( PNorCP :=  0 // IN: BOOL, 0=use internal Ethernet (PN), 1=use external Ethernet(CP)
+           ,connectionID :=  1 // IN: INT, only used for external ethernet (CP)
+           ,cpLADDR :=  W#16#100 // IN: WORD, only used for external ethhernet (CP)
+           ,ipBlock1 :=  192 // IN: INT, IP address parameter only with internal ethernet (PN)
+           ,ipBlock2 :=  168 // IN: INT, IP address parameter only with PN internal ethernet (PN)
+           ,ipBlock3 :=  1 // IN: INT, IP address parameter only with PN internal ethernet (PN)
+           ,ipBlock4 :=  1 // IN: INT, IP address parameter only with PN internal ethernet (PN)
+           ,ipPort :=  1883 // IN: INT, IP port parameter only with PN internal ethernet (PN)
+           ); 
+
 FB70.DB70();    // Example Application
 
-
-  
- 
 END_ORGANIZATION_BLOCK
+

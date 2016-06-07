@@ -143,13 +143,24 @@ VAR
     NET_DISCON : TDISCON;
     NET_SEND   : TSEND;
     NET_RCV    : TRCV;
+    
+    NET_CONFIG : UDT_NET_CONFIG;
 END_VAR
 
 VAR_INPUT
-    net_config : NET_CONFIG;         // UDT with network configuration as input
-    PNorCP     : BOOL := PN;         // 0 for PN, 1 for CP Ethernet
-    connectionID   : INT  := 1;      // S7 Connection ID for CP Ethernet
-    cpLADDR    : WORD := W#16#0100;  //  S7 LADDR for CP Ethernet
+    PNorCP        : BOOL := PN;         // 0 for PN, 1 for CP Ethernet
+    connectionID  : INT  := 1;      // S7 Connection ID for CP Ethernet
+    cpLADDR       : WORD := W#16#0100;  //  S7 LADDR for CP Ethernet
+    ipBlock1      : INT := 0;
+    ipBlock2      : INT := 0;
+    ipBlock3      : INT := 0;
+    ipBlock4      : INT := 0;
+    ipPort        : INT := 0;
+    ipPort_Byte AT ipPort : STRUCT
+        byte1 : BYTE;
+        byte2 : BYTE;
+    END_STRUCT;
+                
 END_VAR
 
 VAR_OUTPUT
@@ -184,9 +195,18 @@ CASE (tcpState) OF
     
     TCP_STATE_INITIALIZING:
         IF PNorCP = PN THEN
+            
+            // Load IP parameters to NET_CONFIG DB variables for usage in TCON
+            NET_CONFIG.rem_staddr[1] := INT_TO_BYTE(ipBlock1);
+            NET_CONFIG.rem_staddr[2] := INT_TO_BYTE(ipBlock2);
+            NET_CONFIG.rem_staddr[3] := INT_TO_BYTE(ipBlock3);
+            NET_CONFIG.rem_staddr[4] := INT_TO_BYTE(ipBlock4);
+            NET_CONFIG.rem_tsap_id[1]:= ipPort_Byte.byte1;
+            NET_CONFIG.rem_tsap_id[2]:= ipPort_Byte.byte2;
+            
             NET_CON(REQ :=  false // IN: BOOL
                     ,ID := INT_TO_WORD(connectionID) // IN: WORD
-                    ,CONNECT := net_config // INOUT: ANY
+                    ,CONNECT := NET_CONFIG // INOUT: ANY
                    ); 
         
             NET_SEND(REQ := false // IN: BOOL
@@ -217,7 +237,7 @@ CASE (tcpState) OF
         IF PNorCP = PN THEN
             NET_CON(REQ := true // IN: BOOL
                     ,ID := INT_TO_WORD(connectionID) // IN: WORD
-                    ,CONNECT := net_config // INOUT: ANY
+                    ,CONNECT := NET_CONFIG // INOUT: ANY
                    ); 
                    netcmd_success := NET_CON.DONE; // OUT: BOOL
                    netcmd_error   := NET_CON.ERROR; // OUT: BOOL
