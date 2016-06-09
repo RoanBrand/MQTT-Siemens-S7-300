@@ -1,10 +1,10 @@
 (* MQTT Library Components *)
-NET_CONFIG;
-Globals;
-Receiving;
-Sending;
-Functions;
-Main;
+MQTT_NET_CONFIG;
+MQTT_Globals;
+MQTT_Receiving;
+MQTT_Sending;
+MQTT_Functions;
+MQTT_Main;
 
 (* Example Application *)
 Example;
