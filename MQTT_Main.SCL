@@ -519,6 +519,7 @@ CASE (mqttData._state) OF
                         
                         IF BYTE_TO_INT(mqttData.buffer[3]) = mqttGlobals.MQTT_CONN_ACCEPTED THEN
                             mqttData._state := MQTT_STATE_CONNECTED;
+                            mqttData.mqttConnected := true;
                         ELSE
                             // MQTT Connection Error!
                             mqttData._state := MQTT_STATE_DISCONNECTED;
@@ -539,10 +540,12 @@ CASE (mqttData._state) OF
             intState := WAIT_FOR_RECEIVED_PACKET;
             lastState := mqttData._state;
         END_IF;
+        // Check if Keepalive timeout occured.
         IF ((mqttData.runTime - mqttData.lastInActivity) > mqttGlobals.MQTT_KEEPALIVE) OR ((mqttData.runTime - mqttData.lastOutActivity) > mqttGlobals.MQTT_KEEPALIVE) THEN
             IF (mqttData.pingOutstanding) THEN
-                // Timeout!
+                // Ping Timeout!
                 mqttData._state := MQTT_STATE_DISCONNECTED;
+                mqttData.mqttConnected := false;
             ELSE
                 mqttData.buffer[0] := INT_TO_BYTE(mqttGlobals.MQTTPINGREQ);
                 mqttData.buffer[1] := 0;
@@ -591,6 +594,11 @@ CASE (mqttData._state) OF
                                 END_FOR;
                                 payloadSize := paylSize;
                                 callback := true;
+                                
+                                // Check if the Publish messag has QoS = 1, if yes then send PUBACK response
+                                IF BYTE_TO_INT(mqttData.buffer[0] AND B#16#01) = 1 THEN
+                                    mqttPUBACK(packetIdMSB:=mqttData.buffer[paylPos-2],packetIdLSB:=mqttData.buffer[paylPos-1]);
+                                END_IF;
                             ;
                             
                             MQTT_PINGRESP:
