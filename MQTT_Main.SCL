@@ -190,6 +190,7 @@ CASE (tcpState) OF
     
     TCP_STATE_UNINITIALIZED:
         mqttData.ethTCPConnected := false;
+		mqttData.mqttConnected := false;
         tcpState := TCP_STATE_INITIALIZING;
     ;
     
@@ -294,6 +295,7 @@ CASE (tcpState) OF
                 IF NOT ((DWORD_TO_WORD(cntrl_res1) AND W#16#7000) = W#16#7000) THEN
                     tcpState := TCP_STATE_DISCONNECTED;
                     mqttData.ethTCPConnected := false;
+					mqttData.mqttConnected := false;
                 END_IF;
             END_IF;
             
@@ -301,6 +303,7 @@ CASE (tcpState) OF
                 // the CP reported an error, reset the connection
                 tcpState := TCP_STATE_DISCONNECTED;
                 mqttData.ethTCPConnected := false;
+				mqttData.mqttConnected := false;
                 cntrl_lastErrStatus := cntrl_status;
             END_IF;
         END_IF;
@@ -308,6 +311,7 @@ CASE (tcpState) OF
     
     TCP_STATE_DISCONNECTING:
         mqttData.ethTCPConnected := false;
+		mqttData.mqttConnected := false;
         
         IF PNorCP = PN THEN
             NET_DISCON(REQ := true // IN: BOOL
@@ -342,6 +346,7 @@ CASE (tcpState) OF
      
      TCP_STATE_DISCONNECTED:
         mqttData.ethTCPConnected := false;
+		mqttData.mqttConnected := false;
         tcpState := TCP_STATE_UNINITIALIZED;
      ;
      
