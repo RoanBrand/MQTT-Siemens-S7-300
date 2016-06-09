@@ -14,10 +14,15 @@ MQTT will enable a PLC to connect to the cloud without using proprietary hardwar
 Developers can use it to build customized dashboards (physical, website, or mobile device), providing valuable data for analytics and business. MQTT enabled IO could serve as an inexpensive alternative for the PLC. (although not recommended for mission critical IO and for safety reasons)
 
 ### Current Test Scenario:
-At this time, this is tested on
+At this time, this code has been *successfully tested* on:
 
-- CPU315-2 PN/DP (315-2EH14-0AB0) with internal Ethernet
+- CPU312C (312-5BF04-0AB0) with CP343-1 (343-1EX30-0XE0) external Ethernet
+- CPU313C (313-5BG04-0AB0) with CP343-1 (343-1EX30-0XE0) external Ethernet
 - CPU314C-2 PN/DP (314-6EH04-0AB0) with CP343-1 (343-1EX30-0XE0) external Ethernet
+- CPU315-2 PN/DP (315-2EH14-0AB0) with internal Ethernet
+
+*unsuccessfully tested* and *not supported*:
+- CPU313C-2 DP (6ES7313-6CF03-0AB0) (RAM limitations) with CP343-1 (343-1EX30-0XE0) external Ethernet
 
 The PLC is connected to a Mosquitto MQtt broker.
 All main functionallity has been testet: connect, disconnect, subscribe, unsubscribe, ping, publish.
@@ -63,7 +68,7 @@ The following needs to be setup in you project in Simatic Manager:
    *Additional Objects needed:*
    Library: IEC Function Blocks
    - FC21  LEN
-   - FC22  EQ_STRNG
+   - FC10  EQ_STRNG
    
  
    Library: System Function Block
@@ -73,7 +78,11 @@ The following needs to be setup in you project in Simatic Manager:
    - SFC58 WR_REC
    - SFC59 RD_REC
 
-3. You have to compile the Makefile two times because there is still some DB creation problem.
+   
+   *Important*: there will be an import conflict between FC10 AG_CTRL and FC10 EQ_STRING, as a solution rename one of the the FC-numbers during import
+   
+   
+   3. You have to compile the Makefile two times because there is still some DB creation problem.
    The second run will succeed.
 
 4. You must call the MQTT function block in your OB1 program loop.
@@ -121,10 +130,11 @@ Don´t break the code :-)
 
 You can check the connection status by monitoring two Flags in mqttData DB:
 
-mqttData.ethTCPConnected  : this Boolean will show you the state of the TCP connection to the broker
-mqttData.mqttConnected : this Boolean will show you the connection status of the MQtt connection to the broker. I recommend to check this status before trying to send a message.
+**mqttData.ethTCPConnected**  : this Boolean will show you the state of the TCP connection to the broker
 
-mqttData.mqttErrorCode  : will hold the last MQtt error code
+**mqttData.mqttConnected** : this Boolean will show you the connection status of the MQtt connection to the broker. I recommend to check this status before trying to send a message.
+
+**mqttData.mqttErrorCode**  : will hold the last MQtt error code
 
 # Example
 
