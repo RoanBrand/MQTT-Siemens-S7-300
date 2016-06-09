@@ -221,6 +221,7 @@ BEGIN
     mqttSendTCP(offset := 0, size := 2);
     mqttData.lastOutActivity := mqttData.runTime;
     mqttData._state := mqttGlobals.MQTT_DISCONNECTED; //
+    mqttData.mqttConnected := false;
 END_FUNCTION
 
 
@@ -455,5 +456,26 @@ END_FUNCTION
 (**************************************************************)
 
 
-
+(* 
+   **********************************************************************************
+   MQtt PUBACK method
+   Please refer to http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html
+   Section 3.4 PUBACK - Publish acknowledgement
+   RETURN: none
+   **********************************************************************************
+*)
+FUNCTION mqttPUBACK : VOID
+VAR_INPUT
+    packetIdMSB : BYTE;
+    packetIdLSB : BYTE;
+END_VAR
+BEGIN
+    mqttData.buffer[0] := INT_TO_BYTE(mqttGlobals.MQTTPUBACK);
+    mqttData.buffer[1] := 2;
+    mqttData.buffer[2] := packetIdMSB;
+    mqttData.buffer[3] := packetIdLSB;    
+    mqttSendTCP(offset := 0, size := 4);
+    mqttData.lastOutActivity := mqttData.runTime;
+END_FUNCTION
+(**************************************************************)
 
