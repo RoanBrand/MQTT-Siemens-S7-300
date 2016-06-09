@@ -29,7 +29,7 @@ I am locally connecting to a Mosquitto broker.
   Especially the code must be reviewed wether it conforms to all the yellowish lines in the MQtt documentation
 - subscribe and unsubscribe only for one topic at a time (you can subscribe multiple times if you need several topics)
 - the Siemens PLC Ethernet adapters can send/receive *8192 bytes max.* per transmission. Please refer to the Simatic Manager help pages for the corresponding FBs/FCs
-
+- Qos 2 handling for incoming publish messages not implemented
 
 ### Todo:
 - state machine for tcp and mqtt should be harmonized
@@ -117,6 +117,15 @@ Remove the If-Then-Else clause and keep the Ethernet function call you need.
 
 Don´t break the code :-)
 
+## Check connection status
+
+You can check the connection status by monitoring two Flags in mqttData DB:
+
+mqttData.ethTCPConnected  : this Boolean will show you the state of the TCP connection to the broker
+mqttData.mqttConnected : this Boolean will show you the connection status of the MQtt connection to the broker. I recommend to check this status before trying to send a message.
+
+mqttData.mqttErrorCode  : will hold the last MQtt error code
+
 # Example
 
 Included is an example application function block (FB70) that is typically called from OB1.
@@ -124,7 +133,7 @@ Inputs for this block can trigger a MQTT broker connect, publish a message or su
 
 There is also some example code for calculating a payload CRC to check the data integrity.  The used CRC_GEN function can be found in the oscat.de PLC library.
 
-### Notes
+# Notes
 Porting C++ to Siemens SCL has taught many differences between systems. Differences include:
 
 - The inability to make blocking calls in SCL.
