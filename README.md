@@ -18,11 +18,10 @@ At this time, this code has been *successfully tested* on:
 
 - CPU312C (312-5BF04-0AB0) with CP343-1 (343-1EX30-0XE0) external Ethernet
 - CPU313C (313-5BG04-0AB0) with CP343-1 (343-1EX30-0XE0) external Ethernet
+- CPU313C (6ES7313-5BF03-0AB0) with CP343-1 (343-1EX30-0XE0) external Ethernet (PLC with only 64KB RAM!)
 - CPU314C-2 PN/DP (314-6EH04-0AB0) with CP343-1 (343-1EX30-0XE0) external Ethernet
 - CPU315-2 PN/DP (315-2EH14-0AB0) with internal Ethernet
 
-*unsuccessfully tested* and *not supported*:
-- CPU313C-2 DP (6ES7313-6CF03-0AB0) (RAM limitations) with CP343-1 (343-1EX30-0XE0) external Ethernet
 
 The PLC is connected to a Mosquitto MQtt broker.
 All main functionallity has been testet: connect, disconnect, subscribe, unsubscribe, ping, publish.
@@ -132,7 +131,7 @@ You can check the connection status by monitoring two Flags in mqttData DB:
 
 **mqttData.ethTCPConnected**  : this Boolean will show you the state of the TCP connection to the broker
 
-**mqttData.mqttConnected** : this Boolean will show you the connection status of the MQtt connection to the broker. I recommend to check this status before trying to send a message.
+**mqttData._state** : will show you the connection status of the MQtt connection to the broker. Check for value > 0 to check if MQTT is connected. I recommend to check this status before trying to send a message.
 
 **mqttData.mqttErrorCode**  : will hold the last MQtt error code
 
