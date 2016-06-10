@@ -116,15 +116,15 @@ mqttData.buffer[length] := DWORD_TO_BYTE(SHR(IN := DINT_TO_DWORD(TIME_TO_DINT(mq
 length := length + 1;
 mqttData.buffer[length] := DINT_TO_BYTE(TIME_TO_DINT(mqttGlobals.MQTT_KEEPALIVE)/1000);
 length := length + 1;
-
-// client id
-length := mqttWriteString(iStr := l_clientID, pos := length);
+ 
+length := mqttWriteString(str := l_clientID, pos := length);
 
 
 IF withWill = true THEN
     // copy will topic to buffer
     l_willTopic := willTopic;
-    length := mqttWriteString(iStr := l_willTopic, pos := length);    
+                          
+    length := mqttWriteString(str := l_willTopic, pos := length);    
     
     // copy payload to buffer
     //ptrBuffer := mqttData.buffer[length];
@@ -152,11 +152,12 @@ END_IF;
 
 // username
 IF withUsername = true THEN
-    length := mqttWriteString(iStr := l_username, pos := length);
+                          
+    length := mqttWriteString(str := l_username, pos := length);
 END_IF;
 // password
 IF withPassword = true THEN
-    length := mqttWriteString(iStr := l_password, pos := length);
+    length := mqttWriteString(str := l_password, pos := length);
 END_IF;
 
 // set package type in header
@@ -220,8 +221,7 @@ BEGIN
     mqttData.buffer[1] := 0;
     mqttSendTCP(offset := 0, size := 2);
     mqttData.lastOutActivity := mqttData.runTime;
-    mqttData._state := mqttGlobals.MQTT_DISCONNECTED; //
-    mqttData.mqttConnected := false;
+    mqttData._state := mqttGlobals.MQTT_DISCONNECTED;
 END_FUNCTION
 
 
@@ -260,8 +260,9 @@ length := length + 1;
 mqttData.buffer[length] := INT_TO_BYTE(thisMessageID) AND B#16#FF;
 length := length + 1;
 
-// set topic
-length := mqttWriteString(iStr := l_topic, pos := length);
+// set topic                
+length := mqttWriteString(str := l_topic, pos := length);
+
 // set topic qos
 mqttData.buffer[length] := INT_TO_BYTE(topicQos);
 length := length + 1;
@@ -307,8 +308,8 @@ length := length + 1;
 mqttData.buffer[length] := INT_TO_BYTE(thisMessageID) AND B#16#FF;
 length := length + 1;
 
-// set topic
-length := mqttWriteString(iStr := l_topic, pos := length);
+// set topic        
+length := mqttWriteString(str := l_topic, pos := length);
 
 fixedHeader := INT_TO_BYTE(mqttGlobals.MQTTUNSUBSCRIBE);
 // Set Header Flags for duplicates, qos level and retain
@@ -398,7 +399,8 @@ fixedHeader := fixedHeader OR SHL(IN:=BOOL_TO_BYTE(duplicate),N:=3) OR SHL(IN:=I
 // copy topic to buffer
 holdstring := topic;
 length := 5;
-length := mqttWriteString(iStr := holdstring, pos := length);
+              
+length := mqttWriteString(str := holdstring, pos := length);
 
 // MessageID  
 // Variable header, byte 9
