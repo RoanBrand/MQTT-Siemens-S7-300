@@ -55,28 +55,36 @@ END_FUNCTION
 (**************************************************************)
 
 FUNCTION mqttWriteString : INT
+
 VAR_INPUT
-    iStr : STRING;
+    str : STRING;
+        _str AT str : STRUCT
+            length: BYTE;
+            act_length: BYTE;
+            str: ARRAY [1..254] OF BYTE;
+        END_STRUCT;
     pos : INT;
 END_VAR
 VAR_TEMP
-    strCharView : ARRAY[0..255] OF CHAR;
-    str AT strCharView : STRING;
     newPos : INT;
     i : DINT;
     j : INT;
 END_VAR
+
 BEGIN
-str := iStr;
+
 newPos := pos + 2;
 i := 0;
-FOR j := 0 TO LEN(S := str)-1 DO
-    mqttData.buffer[newPos] := CHAR_TO_BYTE(strCharView[j + 2]);
+
+FOR j := 1 TO BYTE_TO_INT(_str.act_length) DO
+    mqttData.buffer[newPos] := _str.str[j];
     newPos := newPos + 1;
     i := i + 1;
 END_FOR;
+
 mqttData.buffer[newPos - 2 - i] := DWORD_TO_BYTE(SHR(IN := DINT_TO_DWORD(i), N := 8));
 mqttData.buffer[newPos - 1 - i] := DINT_TO_BYTE(i);
+
 mqttWriteString := newPos;
+
 END_FUNCTION
-(**************************************************************)
