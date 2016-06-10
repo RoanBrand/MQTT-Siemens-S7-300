@@ -7,4 +7,4 @@ MQTT_Functions;
 MQTT_Main;
 
 (* Example Application *)
-Example;
+MQTT_Example;
