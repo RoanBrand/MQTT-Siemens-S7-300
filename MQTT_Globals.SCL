@@ -21,7 +21,6 @@ STRUCT
     lastOutActivity : TIME;
     runTime : TIME;
     ethTCPConnected : BOOL;
-    mqttConnected : BOOL;
     
     mqttErrorCode : INT := 0;
     recPublishPacketID : INT := 0;
