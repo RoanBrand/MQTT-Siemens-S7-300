@@ -44,13 +44,23 @@ It should work with most S7-300/400 CPU's.
 This code is written in Step7 SCL v5.3 SP1. It probably needs modification for it to compile in TIA.
 
 # How to Compile/Use in your project
+
+*Important:*
+
+There are two Makefiles:
+
+- Makefile-CP will compile the project with external ethernet support (CP, f.e. CP-343)
+- Makefile-PN will compile the project with internal ethernet support (PN)
+
+only compile the Makefile your PLC setup needs.
+
 The following needs to be setup in you project in Simatic Manager:
 
 1. In SCL Editor Options->Customize set "Create block numbers automatically"
 
 2. You need to add the following Objects Library to your project:
 
-   *For internal Ethernet:*
+   *Only needed for internal ethernet support (PN):*
    Library: Standard Library -> Communication Blocks -> Blocks
    - FB63  TSEND
    - FB64  TRCV
@@ -58,7 +68,7 @@ The following needs to be setup in you project in Simatic Manager:
    - FB66  TDISCON
    
 
-   *For external Ethernet (CP):*
+   *Only needed for external ethernet support (CP):*
    Library: SIMATIC_NET_PC -> CP300
    - FC5   AG_SEND
    - FC6   AG_RECV
@@ -81,30 +91,31 @@ The following needs to be setup in you project in Simatic Manager:
    *Important*: there will be an import conflict between FC10 AG_CTRL and FC10 EQ_STRING, as a solution rename one of the the FC-numbers during import
    
    
-   3. You have to compile the Makefile two times because there is still some DB creation problem.
+3. You have to compile the Makefile two times because there is still some DB creation problem.
    The second run will succeed.
 
-4. You must call the MQTT function block in your OB1 program loop.
+   
+4. *Imporant:* You must call the MQTT function block in your OB1 program loop.
+   
+5. Optional: You may compile the MQTT_Example.
    
 ## Network Configuration
-The MQTT FB can use the internal Ethernet adapter of a CPU (PN) or an external Ethernet adapter (CP).
+The MQTT FB can use the internal Ethernet adapter of a CPU (PN, choose MQTT_Main_PN.scl) or an external Ethernet adapter (CP, choose MQTT_Main_CP.scl).
 
 Remarks for internal Ethernet (PN) adapter configuration:
 - The IP-Address of the internal adapter has to be configured within the hardware configuration tool (HW Config), click on the PN-IO object
 - The remote IP and Port parameters are configured via parameters for the MQTT Function Block (ipBlock1-4,ipPort)
- - you must set the MQTT Functionblock parameter PNorCP to 0 (internal Ethernet (PN)=0, external Ethernet (CP)=1)
- - you must set the MQTT Functionblock parameter connectionID to a desired value, f.e. 1
+- you must set the MQTT Functionblock parameter connectionID to a desired value, f.e. 1
 Example for a MQTT FB call in OB1 configured for internal Ethernet (PN) usage:
-*MQTT.DB71(net_config := DB_NET_CONFIG, PNorCP := 0, connectionID := 1);*
+*MQTT.DB71(net_config := DB_NET_CONFIG, connectionID := 1);*
 
  Remarks for external Ethernet (CP) adapter configuration:
  - The IP-Address of the internal adapter has to be configured within the hardware configuration tool (HW Config), click on the PN-IO object
  - The connection must be configured in Simatic Manager "Connections"
- - you must set the MQTT Functionblock parameter PNorCP to 1 (PN=0, CP=1)
  - you must set the MQTT Functionblock parameter connectionID to the connection ID configured in Simatic Manager "Connections"
  - you must set the MQTT Functionblock parameter cpLADDR to the address of the CP module.
  Example for a MQTT FB call in OB1 configured for external Ethernet (CP)usage:
-*MQTT.DB71(net_config := DB_NET_CONFIG, PNorCP := 1, connectionID := 1, cpLADDR := W#16#100);*
+*MQTT.DB71(net_config := DB_NET_CONFIG, connectionID := 1, cpLADDR := W#16#100);*
 
 ## Setup memory footprint
 
@@ -117,13 +128,6 @@ To reduce the memory usage of the MQtt DBs you can set the receive and transmit 
 - Set buffer array size in mqttData DB to a value of your choice, but not smaller than the largest value of TCP_MAXRECVSIZE or tcpSendBuf, whoever is larger
 
 Keep in mind: data from tcpRecBuf is transfered to buffer and also data from buffer is tranfered to tcpSendBuf within the Code. So match the sizes appropriately.
-
-### Kickout CP or PN references if not used
-
-All calls to Ethernet functions within the MQTT Functionblock code are implemented as a PN and a CP call. There is a If-Then-Else clause refering to PNorCP Input variable.
-Remove the If-Then-Else clause and keep the Ethernet function call you need.
-
-Don´t break the code :-)
 
 ## Check connection status
 
