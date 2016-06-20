@@ -135,8 +135,9 @@ IF withWill = true THEN
            ret := BLKMOV(SRCBLK := ptrWillPayload, DSTBLK := mqttData.buffer[length]); 
             // what is this?!
             IF ret <> 0 THEN
-                m23.2 := true;
+                //m23.2 := true;
                 //return
+                ;
             END_IF;
             length := length + 1;
             structWillPtrPayload.ByteAddressLSB := INT_TO_WORD(WORD_TO_INT(structWillPtrPayload.ByteAddressLSB) + 8);
@@ -442,8 +443,9 @@ IF payloadLength > 0 THEN
        ret := BLKMOV(SRCBLK := ptrPayload, DSTBLK := mqttData.buffer[length]); 
         // what is this?!
         IF ret <> 0 THEN
-            m23.2 := true;
+            //m23.2 := true;
             //return
+            ;
         END_IF;
         length := length + 1;
         structPtrPayload.ByteAddressLSB := INT_TO_WORD(WORD_TO_INT(structPtrPayload.ByteAddressLSB) + 8);
