@@ -124,17 +124,22 @@ VAR_TEMP
     // Temporary Variables
 END_VAR
 
-MQTT.DB71( PNorCP :=  0 // IN: BOOL, 0=use internal Ethernet (PN), 1=use external Ethernet(CP)
-           ,connectionID :=  1 // IN: INT, only used for external ethernet (CP)
-           ,cpLADDR :=  W#16#100 // IN: WORD, only used for external ethhernet (CP)
-           ,ipBlock1 :=  192 // IN: INT, IP address parameter only with internal ethernet (PN)
-           ,ipBlock2 :=  168 // IN: INT, IP address parameter only with PN internal ethernet (PN)
-           ,ipBlock3 :=  1 // IN: INT, IP address parameter only with PN internal ethernet (PN)
-           ,ipBlock4 :=  1 // IN: INT, IP address parameter only with PN internal ethernet (PN)
-           ,ipPort :=  1883 // IN: INT, IP port parameter only with PN internal ethernet (PN)
+(* IMPORTANT: Uncomment this for PN ethernet
+MQTT.DB71( connectionID := 1  // IN: INT, only used for external ethernet (CP)
+           ,ipBlock1 :=  192  // IN: INT, IP address parameter only with internal ethernet (PN)
+           ,ipBlock2 :=  168  // IN: INT, IP address parameter only with PN internal ethernet (PN)
+           ,ipBlock3 :=  1    // IN: INT, IP address parameter only with PN internal ethernet (PN)
+           ,ipBlock4 :=  1    // IN: INT, IP address parameter only with PN internal ethernet (PN)
+           ,ipPort :=  1883   // IN: INT, IP port parameter only with PN internal ethernet (PN)
            ); 
+*)
 
+(* IMPORTANT: Uncomment this for CP ethernet     
+MQTT.DB71( connectionID :=  1    // IN: INT, only used for external ethernet (CP)
+           ,cpLADDR :=  W#16#100 // IN: WORD, only used for external ethhernet (CP)
+           ); 
+           
 FB70.DB70();    // Example Application
-
+*)
 END_ORGANIZATION_BLOCK
 
