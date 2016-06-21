@@ -1,7 +1,6 @@
 (* ToDo:
 - MQtt Publish received: act as QoS wants
 - MQtt Publish receives: QoS 2 handshake
-- send busy handling
 *)
 
 (**************************************************************)
@@ -305,6 +304,11 @@ AG_SEND(ACT := act_send,
         ERROR => netcmd_error,
         STATUS => netcmd_status
 );
+
+// after sending reset send buffer management
+mqttData.sendSize := 0;
+mqttData.tcp_sendBufferFull := false;
+
 IF netcmd_error AND NOT netcmd_success THEN
     last_snd_err := netcmd_status;
     snd_busy := false;
