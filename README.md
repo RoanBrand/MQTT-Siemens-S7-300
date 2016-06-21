@@ -139,6 +139,8 @@ You can check the connection status by monitoring two Flags in mqttData DB:
 
 **mqttData.mqttErrorCode**  : will hold the last MQtt error code
 
+**mqttData.tcp_sendBufferFull** : will be true if the send buffer is full. Important: this also indicates that the last message could not be added to the send buffer, the last message therefore was discarded. To avoid problems with the send buffer, give it an appropriate size to hold multiple messages and also only send if mqttData._state > 0. 
+
 # Example
 
 Included is an example application function block (FB70) that is typically called from OB1.
