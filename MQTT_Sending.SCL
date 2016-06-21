@@ -7,11 +7,15 @@ VAR_TEMP
     i : INT;
 END_VAR
 BEGIN
-FOR i := 0 TO size-1 DO
-    mqttData.tcpSendBuf[i] := mqttData.buffer[offset+i];
-END_FOR;
-mqttData.sendSize := size;
-mqttData.reqSend := true;
+    IF mqttData.sendSize + size <= mqttGlobals.TCP_SENDBUFFERSIZE THEN
+        FOR i := 0 TO size-1 DO
+            mqttData.tcpSendBuf[MIN(IN1:=(i+mqttData.sendSize),IN2:=mqttGlobals.TCP_SENDBUFFERSIZE)] := mqttData.buffer[offset+i];
+        END_FOR;
+        mqttData.sendSize := mqttData.sendSize+size;
+        mqttData.reqSend := true;
+    ELSE
+        mqttData.tcp_sendBufferFull := true;
+    END_IF;
 END_FUNCTION
 (**************************************************************)
 
