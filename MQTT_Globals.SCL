@@ -25,6 +25,7 @@ STRUCT
     mqttErrorCode : INT := 0;
     recPublishPacketID : INT := 0;
     
+    tcp_sendBufferFull : BOOL := false;
 END_STRUCT
 BEGIN
 END_DATA_BLOCK
@@ -37,6 +38,7 @@ STRUCT
 
     TCP_RECVBUFFERSIZE  :   INT :=  8192;   // size of TCP receive buffer
     TCP_MAXRECVSIZE     :   INT := 4096;   // TCP max receive packet size
+    TCP_SENDBUFFERSIZE  :   INT := 4096;
     
     // MQtt States
     MQTT_CONNECTION_TIMEOUT     : INT := -4;
