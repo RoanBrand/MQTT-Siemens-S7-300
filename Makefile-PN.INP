@@ -1,0 +1,12 @@
+(* Makefile to compile project with internal Ethernet support (PN) *)
+
+(* MQTT Library Components *)
+MQTT_NET_CONFIG;
+MQTT_Globals;
+MQTT_Receiving;
+MQTT_Sending;
+MQTT_Functions;
+MQTT_Main_PN;
+
+(* Example Application *)
+// MQTT_Example;

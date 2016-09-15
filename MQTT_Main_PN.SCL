@@ -1,0 +1,580 @@
+(* ToDo:
+- MQtt Publish received: act as QoS wants
+- MQtt Publish receives: QoS 2 handshake
+*)
+
+(**************************************************************)
+
+FUNCTION_BLOCK MQTT
+
+CONST
+    // TCP States
+    TCP_STATE_UNINITIALIZED   := 0;
+    TCP_STATE_INITIALIZING    := 1;
+    TCP_STATE_INITIALIZED     := 2;
+    TCP_STATE_CONNECTING      := 3;
+    TCP_STATE_CONNECTED       := 4;
+    TCP_STATE_DISCONNECTING   := 5;
+    TCP_STATE_DISCONNECTED    := 6;
+    
+    // MQTT States
+    MQTT_STATE_DISCONNECTED := -1;
+    MQTT_STATE_CONNECTING   := 0;
+    MQTT_STATE_CONNECTED    := 1;
+    
+    // packet reading States
+    WAIT_FOR_RECEIVED_PACKET := 0;
+    READ_COMPLETE_PACKET     := 1;
+    
+    // MQTT Message Types
+    MQTT_CONNECT        := 16;
+    MQTT_CONNACK        := 32;
+    MQTT_PUBLISH        := 48;
+    MQTT_PUBACK         := 64;
+    MQTT_PUBREC         := 80;
+    MQTT_PUBREL         := 96;
+    MQTT_PUBCOMP        := 112;
+    MQTT_SUBSCRIBE      := 130;
+    MQTT_SUBACK         := 144;
+    MQTT_UNSUBSCRIBE    := 160;
+    MQTT_UNSUBACK       := 176;
+    MQTT_PINGREQ        := 192;
+    MQTT_PINGRESP       := 208;
+    MQTT_DISCONNECT     := 224;
+    
+    // Types of Ethernet Adapters
+    PN                  := 0;
+    CP                  := 1;
+    
+    // CP AG_CTRL COMMANDS
+    CN_NOP              := 0; // do nothing
+    CN_STATUS           := 1;
+    CN_RESET            := 2;
+    CN_STATUS_ALL       := 3; // get status for ALL connections
+    CN_RESET_ALL        := 4; // reset ALL connections
+    CN_CLEAR_RESET      := 5;
+    CN_DISCON           := 6; // disconnect the connection, no automatic reconnect
+    CN_STARTCON         := 7; // initiate connection
+END_CONST
+
+VAR_IN_OUT
+    callback : BOOL;
+    callbackPacketType : INT;
+END_VAR
+
+VAR_TEMP
+    i : INT;
+    intTemp : INT;
+    
+    TOP_SI: STRUCT
+        EV_CLASS: BYTE;
+        EV_NUM:   BYTE;
+        PRIORITY: BYTE;
+        NUM:      BYTE;
+        TYP2_3:   BYTE;
+        TYP1:     BYTE;
+        ZI1:      WORD;
+        ZI2_3:    DWORD;
+   END_STRUCT;
+
+   START_UP_SI: STRUCT
+        EV_CLASS: BYTE;
+        EV_NUM:   BYTE;
+        PRIORITY: BYTE;
+        NUM:      BYTE;
+        TYP2_3:   BYTE;
+        TYP1:     BYTE;
+        ZI1:      WORD;
+        ZI2_3:    DWORD;
+   END_STRUCT;
+   
+    tmpPacketID : INT;
+    structTmpPacketId AT tmpPacketID : STRUCT
+        byteLSB : BYTE;
+        byteMSB : BYTE;
+    END_STRUCT;
+    
+END_VAR
+
+VAR
+    // TCP State Control
+    tcpState : INT := 0; // TCP state: TCP_UNINITIALIZED
+    
+    // MQTT Protocol State Control
+    intState, lastState : INT;          // State Machine
+    tcpRecByte : BYTE;                  // Next incoming TCP byte
+    myPacketReader : mqttPacketReader;      // MQTT PacketReader Instance
+    msgId : INT;
+    typeOfPacket : INT;
+    
+    runTimer : SFB4;
+    resetTime : TIME;
+    
+    tl : INT;
+    paylPos : INT;
+    paylSize : INT;
+
+    //debug
+    recBufLeft : INT;
+
+    // Send TCP State
+    act_send     : BOOL;
+    snd_busy     : BOOL;
+    last_snd_err : WORD;
+    
+    // Receive TCP State
+    last_rec_err : WORD;
+
+    // Control TCP State
+    cntrl_done             : BOOL;
+    cntrl_error            : BOOL;
+    cntrl_status           : WORD;
+    cntrl_lastErrStatus    : WORD;
+    cntrl_res1, cntrl_res2 : DWORD;
+    
+    netcmd_success : BOOL := false;
+    netcmd_busy    : BOOL := false;
+    netcmd_error   : BOOL := false;
+    netcmd_status  : WORD;
+    netcmd_datareceived : BOOL := false;
+    netcmd_datalength   : INT;
+    
+    NET_CON    : TCON;
+    NET_DISCON : TDISCON;
+    NET_SEND   : TSEND;
+    NET_RCV    : TRCV;
+    
+    NET_CONFIG : UDT_NET_CONFIG;
+END_VAR
+
+VAR_INPUT
+    connectionID  : INT  := 1;      // S7 Connection ID for CP Ethernet
+    ipBlock1      : INT := 0;
+    ipBlock2      : INT := 0;
+    ipBlock3      : INT := 0;
+    ipBlock4      : INT := 0;
+    ipPort        : INT := 0;
+    ipPort_Byte AT ipPort : STRUCT
+        byte1 : BYTE;
+        byte2 : BYTE;
+    END_STRUCT;
+                
+END_VAR
+
+VAR_OUTPUT
+    pubTopic : STRING;
+    pubTopicChar AT pubTopic : ARRAY[0..255] OF CHAR;
+    payload : ARRAY[0..4096] OF BYTE; // Must match mqttGlobals.TCP_MAXRECVSIZE
+    payloadSize : INT;
+END_VAR
+
+BEGIN
+
+(* Check if CPU had a reset, trigger network reinitialization on reset *)
+intTemp := RD_SINFO (TOP_SI := TOP_SI, START_UP_SI := START_UP_SI);
+IF TOP_SI.EV_NUM <> 3 THEN
+    tcpState := TCP_STATE_UNINITIALIZED;
+    mqttData.ethTCPConnected := false;
+    mqttData._state := MQTT_STATE_DISCONNECTED;
+END_IF;
+
+
+(* 
+    ******************************
+    TCP/IP State Machine
+    ******************************
+*)
+CASE (tcpState) OF
+    
+    TCP_STATE_UNINITIALIZED:
+        mqttData.ethTCPConnected := false;
+        tcpState := TCP_STATE_INITIALIZING;
+    ;
+    
+    TCP_STATE_INITIALIZING:
+        
+        // *** PN CODE ****
+        
+        // Load IP parameters to NET_CONFIG DB variables for usage in TCON
+        NET_CONFIG.rem_staddr[1] := INT_TO_BYTE(ipBlock1);
+        NET_CONFIG.rem_staddr[2] := INT_TO_BYTE(ipBlock2);
+        NET_CONFIG.rem_staddr[3] := INT_TO_BYTE(ipBlock3);
+        NET_CONFIG.rem_staddr[4] := INT_TO_BYTE(ipBlock4);
+        NET_CONFIG.rem_tsap_id[1]:= ipPort_Byte.byte1;
+        NET_CONFIG.rem_tsap_id[2]:= ipPort_Byte.byte2;
+        
+        NET_CON(REQ :=  false // IN: BOOL
+                ,ID := INT_TO_WORD(connectionID) // IN: WORD
+                ,CONNECT := NET_CONFIG // INOUT: ANY
+               ); 
+    
+        NET_SEND(REQ := false // IN: BOOL
+                 ,ID := INT_TO_WORD(connectionID) // IN: WORD
+                 ,LEN :=  0// IN: INT
+                 ,DATA := mqttData.tcpSendBuf // INOUT: ANY
+                ); 
+    
+        NET_RCV(EN_R := false // IN: BOOL
+                ,ID := INT_TO_WORD(connectionID) // IN: WORD
+                ,LEN := 0 // IN: INT
+                ,DATA := tcpRecByte // INOUT: ANY
+               ); 
+     
+        NET_DISCON(REQ := false // IN: BOOL
+                   ,ID := INT_TO_WORD(connectionID) // IN: WORD
+                  );
+                  
+        // *** PN CODE END ****
+        
+        tcpState := TCP_STATE_INITIALIZED;
+    ;
+    
+    TCP_STATE_INITIALIZED:
+        tcpState := TCP_STATE_CONNECTING;
+    ;
+    
+    TCP_STATE_CONNECTING:
+    
+        // *** PN CODE ****
+        
+        NET_CON(REQ := true // IN: BOOL
+                ,ID := INT_TO_WORD(connectionID) // IN: WORD
+                ,CONNECT := NET_CONFIG // INOUT: ANY
+               ); 
+               netcmd_success := NET_CON.DONE; // OUT: BOOL
+               netcmd_error   := NET_CON.ERROR; // OUT: BOOL
+               netcmd_status  := NET_CON.STATUS; // OUT: WORD
+     
+       IF netcmd_success AND (netcmd_status = W#16#0) THEN
+            tcpState := TCP_STATE_CONNECTED;
+            mqttData.ethTCPConnected := true;
+       END_IF;
+       IF netcmd_error THEN
+            cntrl_lastErrStatus := netcmd_error;
+       END_IF;
+       
+       // *** PN CODE END ****
+    ;
+    
+    TCP_STATE_CONNECTED:
+        // *** PN CODE - NO CODE NEEDED FOR PN HERE ****
+    ;
+    
+    TCP_STATE_DISCONNECTING:
+        mqttData.ethTCPConnected := false;
+        
+        // *** PN CODE ****
+        NET_DISCON(REQ := true // IN: BOOL
+                   ,ID := INT_TO_WORD(connectionID) // IN: WORD
+                  );
+                  netcmd_success := NET_DISCON.DONE; // OUT: BOOL
+                  netcmd_busy    := NET_DISCON.BUSY; // OUT: BOOL
+                  netcmd_error   := NET_DISCON.ERROR; // OUT: BOOL
+                  netcmd_status  := NET_DISCON.STATUS; // OUT: WORD
+        IF netcmd_success THEN
+            tcpState := TCP_STATE_DISCONNECTED;
+        END_IF;
+        
+        // *** PN CODE END ****
+     ;
+     
+     TCP_STATE_DISCONNECTED:
+        mqttData.ethTCPConnected := false;
+        tcpState := TCP_STATE_UNINITIALIZED;
+     ;
+     
+    ELSE:;          
+END_CASE;
+
+
+(* 
+    ******************************
+    TCP/IP Sending and Receiving
+    ******************************
+*)
+IF NOT (tcpState = TCP_STATE_CONNECTED) THEN
+    RETURN;
+END_IF;
+  
+(* TCP SENDING *)
+IF (mqttData.reqSend AND NOT snd_busy) THEN
+    mqttData.reqSend := false;
+    act_send := true;
+END_IF;
+
+
+// *** PN CODE ****
+NET_SEND(REQ :=  act_send // IN: BOOL
+         ,ID :=  INT_TO_WORD(connectionID) // IN: WORD
+         ,LEN :=  mqttData.sendSize // IN: INT
+         ,DATA := mqttData.tcpSendBuf // INOUT: ANY
+         ); 
+         netcmd_success := NET_SEND.DONE; // OUT: BOOL
+         netcmd_error   := NET_SEND.ERROR; // OUT: BOOL
+         netcmd_status  := NET_SEND.STATUS; // OUT: WORD
+
+// after sending reset send buffer management
+mqttData.sendSize := 0;
+mqttData.tcp_sendBufferFull := false;
+         
+IF netcmd_error AND NOT netcmd_success THEN
+    last_snd_err := netcmd_status;
+    snd_busy := false;
+    
+    IF ((netcmd_status = W#16#80A1) OR (netcmd_status = W#16#80C4)) THEN
+        mqttData.ethTCPConnected := false;
+        mqttData._state := MQTT_STATE_DISCONNECTED;
+        tcpState := TCP_STATE_DISCONNECTING;
+    END_IF;
+END_IF;
+// *** PN CODE END ****
+
+
+IF (act_send) THEN
+    act_send := false;
+    snd_busy := true;
+END_IF;
+
+IF (netcmd_success AND snd_busy) THEN
+    snd_busy := false;
+END_IF;
+
+
+(* TCP RECEIVING *)
+
+// *** PN CODE ****
+NET_RCV(EN_R  := true // IN: BOOL
+        ,ID   := INT_TO_WORD(connectionID) // IN: WORD
+        ,LEN  := netcmd_datalength // IN: INT
+        ,DATA := tcpRecByte // INOUT: ANY
+       ); 
+       netcmd_datareceived := NET_RCV.NDR; // OUT: BOOL
+       netcmd_error        := NET_RCV.ERROR; // OUT: BOOL
+       netcmd_status       := NET_RCV.STATUS; // OUT: WORD
+       netcmd_datalength   := NET_RCV.RCVD_LEN; // OUT: INT
+       
+IF netcmd_error AND  ((netcmd_status = W#16#80A1) OR (netcmd_status = W#16#80C4)) THEN
+    last_rec_err := netcmd_status;
+    mqttData._state := MQTT_STATE_DISCONNECTED;
+    tcpState := TCP_STATE_DISCONNECTING;
+END_IF;
+// *** PN CODE END ****
+
+
+IF netcmd_datareceived THEN
+    IF mqttData.RecBufFull THEN
+        m33.1 := true;
+    ELSE
+        mqttData.tcpRecBuf[mqttData.pRec] := tcpRecByte;
+        mqttData.pRec := mqttData.pRec + 1;
+        IF (mqttData.pRec >= mqttGlobals.TCP_RECVBUFFERSIZE) THEN
+            mqttData.pRec := 0;
+        END_IF;
+        IF (mqttData.pRec = mqttData.pRead) THEN
+            mqttData.RecBufFull := true;
+        END_IF;
+    END_IF;
+END_IF;
+
+myPacketReader();
+
+//debug
+IF (mqttData.pRec >= mqttData.pRead) THEN
+    recBufLeft := mqttGlobals.TCP_RECVBUFFERSIZE - (mqttData.pRec - mqttData.pRead);
+ELSE
+    recBufLeft := mqttGlobals.TCP_RECVBUFFERSIZE - (mqttData.pRead - mqttData.pRec);
+END_IF;
+
+
+// Connection time
+runTimer(IN := true, PT := T#24D);
+mqttData.runTime := runTimer.ET;
+
+
+(*
+   ******************************
+   MQTT State Machine
+   ******************************
+*)
+CASE (mqttData._state) OF
+    
+    MQTT_STATE_DISCONNECTED:
+        lastState := mqttData._state;
+        // TODO: what is this for?
+        IF ((mqttData.runTime - t#10s) > resetTime) AND NOT mqttData.ethTCPConnected THEN
+            resetTime := mqttData.runTime;        
+        END_IF;
+    ;
+    
+    MQTT_STATE_CONNECTING:  // this state is triggered by mqttConnect FC
+        IF (mqttData._state <> lastState) THEN
+            intState := WAIT_FOR_RECEIVED_PACKET;
+            lastState := mqttData._state;
+        END_IF;
+        
+        CASE (intState) OF
+            
+            WAIT_FOR_RECEIVED_PACKET:
+                IF ((mqttData.runTime - mqttData.lastInActivity) >= mqttGlobals.MQTT_SOCKET_TIMEOUT) THEN
+                    // Timeout!
+                    mqttData._state := MQTT_STATE_DISCONNECTED;
+                ELSIF mqttAvailable() THEN
+                    myPacketReader.iBegin := true;
+                    intState := READ_COMPLETE_PACKET;
+                END_IF;
+            ;
+            
+            READ_COMPLETE_PACKET:
+                IF (myPacketReader.xDone) THEN
+                    
+                    typeOfPacket := BYTE_TO_INT(mqttData.buffer[0] AND B#16#F0);
+                    
+                    IF(typeOfPacket = mqttGlobals.MQTTCONNACK) THEN
+                        mqttData.lastInActivity := mqttData.runTime;
+                        mqttData.pingOutstanding := false;
+                        
+                        IF BYTE_TO_INT(mqttData.buffer[3]) = mqttGlobals.MQTT_CONN_ACCEPTED THEN
+                            mqttData._state := MQTT_STATE_CONNECTED;
+                        ELSE
+                            // MQTT Connection Error!
+                            mqttData._state := MQTT_STATE_DISCONNECTED;
+                            callbackPacketType := MQTT_CONNACK;
+                            mqttData.mqttErrorCode := BYTE_TO_INT(mqttData.buffer[3]);
+                            callback := true;
+                        END_IF;
+                    // ELSE maybe need equivalent/workaround to client->stop()
+                    END_IF;
+                END_IF;
+            ;
+            
+        END_CASE;
+    ;
+    
+    MQTT_STATE_CONNECTED:
+        IF (mqttData._state <> lastState) THEN
+            intState := WAIT_FOR_RECEIVED_PACKET;
+            lastState := mqttData._state;
+        END_IF;
+        // Check if Keepalive timeout occured.
+        IF ((mqttData.runTime - mqttData.lastInActivity) > mqttGlobals.MQTT_KEEPALIVE) OR ((mqttData.runTime - mqttData.lastOutActivity) > mqttGlobals.MQTT_KEEPALIVE) THEN
+            IF (mqttData.pingOutstanding) THEN
+                // Ping Timeout!
+                mqttData._state := MQTT_STATE_DISCONNECTED;
+            ELSE
+                mqttData.buffer[0] := INT_TO_BYTE(mqttGlobals.MQTTPINGREQ);
+                mqttData.buffer[1] := 0;
+                mqttSendTCP(offset := 0, size := 2);
+                mqttData.lastOutActivity := mqttData.runTime;
+                mqttData.lastInActivity := mqttData.lastOutActivity;
+                mqttData.pingOutstanding := true;
+            END_IF;
+        END_IF;
+        
+        CASE (intState) OF
+            
+            WAIT_FOR_RECEIVED_PACKET:
+                    IF mqttAvailable() THEN
+                    myPacketReader.iBegin := true;
+                    msgId := 0;
+                    intState := READ_COMPLETE_PACKET;
+                END_IF;
+            ;
+            
+            READ_COMPLETE_PACKET:
+                IF (myPacketReader.xDone) THEN
+                    
+                    // check if received message is > 0 bytes for variable part
+                    IF (myPacketReader.result > 0) THEN
+                        
+                        mqttData.lastInActivity := mqttData.runTime;
+                        
+                        typeOfPacket := BYTE_TO_INT(mqttData.buffer[0] AND B#16#F0);
+                        
+                        CASE (typeOfPacket) OF
+                            
+                            MQTT_PUBLISH:
+                                // received a PUBLISH, 3.3 PUBLISH – Publish message
+                                // refer to MQTT Docs. section 3.3 PUBLISH – Publish message
+                                
+                                tl := WORD_TO_INT(SHL(IN := BYTE_TO_WORD(mqttData.buffer[myPacketReader.lengthLength+1]), N := 8)) + BYTE_TO_INT(mqttData.buffer[myPacketReader.lengthLength+2]);
+                                FOR i := 0 TO tl-1 DO
+                                    pubTopicChar[i+2] := BYTE_TO_CHAR(mqttData.buffer[myPacketReader.lengthLength+3+i]);
+                                END_FOR;
+                                pubTopicChar[1] := INT_TO_CHAR(tl);
+                                paylPos := myPacketReader.lengthLength+3+tl;
+                                paylSize := myPacketReader.result - paylPos;
+                                FOR i := 0 TO paylSize-1 DO
+                                    payload[i] := mqttData.buffer[paylPos+i];
+                                END_FOR;
+                                payloadSize := paylSize;
+                                callback := true;
+                                
+                                // Check if the Publish messag has QoS = 1, if yes then send PUBACK response
+                                IF BYTE_TO_INT(mqttData.buffer[0] AND B#16#01) = 1 THEN
+                                    mqttPUBACK(packetIdMSB:=mqttData.buffer[paylPos-2],packetIdLSB:=mqttData.buffer[paylPos-1]);
+                                END_IF;
+                            ;
+                            
+                            MQTT_PINGRESP:
+                                // received a PINGRESP, part of MQTT 3.1.2.10 Keep Alive
+                                // (refer MQTT Docs. section 3.1.2.10 Keep Alive, 3.12 PINGREQ – PING request, 3.13 PINGRESP – PING response)
+                                
+                                mqttData.pingOutstanding := false;
+                            ;
+                            
+                            MQTT_PUBACK:
+                                // received a PUBACK package, part of MQTT QoS 1 handshake
+                                // (refer MQTT Docs. section 4.3.2 QoS 1: AT least once delivery)
+                                
+                                callbackPacketType := mqttGlobals.MQTTPUBACK;
+                                // get the packet ID of the PubAck package and store it in mqttData.recPublishPacketID
+                                structTmpPacketId.byteMSB := mqttData.buffer[3];
+                                structTmpPacketId.byteLSB := mqttData.buffer[2];
+                                mqttData.recPublishPacketID := tmpPacketID;
+                                callback := true;
+                            ;
+                            
+                            MQTT_PUBREC:
+                                // received a PUBREC package, part of MQTT QoS 2 handshake
+                                // (refer MQTT Docs. section 4.3.3 QoS 2: Exactly once delivery)
+                                
+                                // get the packet ID of the PubAck package and store it in mqttData.recPublishPacketID
+                                structTmpPacketId.byteMSB := mqttData.buffer[3];
+                                structTmpPacketId.byteLSB := mqttData.buffer[2];
+                                // send out a PUBREL packet
+                                mqttData.buffer[0] := INT_TO_BYTE(mqttGlobals.MQTTPUBREL);
+                                mqttData.buffer[0] := mqttData.buffer[0] OR SHL(IN:=INT_TO_BYTE(mqttGlobals.MQTTQOS1),N:=1); // set qos flag to 2
+                                mqttData.buffer[1] := 16#02;
+                                mqttSendTCP(offset := 0, size := 4);
+                                mqttData.lastOutActivity := mqttData.runTime;
+                            ;
+                            
+                            MQTT_PUBCOMP:
+                                // received a PUBCOMP package, part of MQTT QoS 2 handshake
+                                // (see MQTT Docs. section 4.3.3 QoS 2: Exactly once delivery)
+                                
+                                // notify about successfull QoS 2 handshake
+                                callbackPacketType := mqttGlobals.MQTTPUBCOMP;
+                                // get the packet ID of the PubAck package and store it in mqttData.recPublishPacketID
+                                structTmpPacketId.byteMSB := mqttData.buffer[3];
+                                structTmpPacketId.byteLSB := mqttData.buffer[2];
+                                mqttData.recPublishPacketID := tmpPacketID;
+                                callback := true;
+                           ;
+
+                        END_CASE; // typeOfPacket
+                        
+                    END_IF; // myPacketReader.result > 0
+                    
+                    intState := WAIT_FOR_RECEIVED_PACKET;
+                    
+                END_IF; // myPacketReader.xDone
+            ;
+                
+        END_CASE; //intState
+        
+END_CASE; // mqttData._state
+    
+
+
+END_FUNCTION_BLOCK

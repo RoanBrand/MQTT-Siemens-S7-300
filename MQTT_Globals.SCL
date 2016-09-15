@@ -1,17 +1,17 @@
-DATA_BLOCK Data
+DATA_BLOCK mqttData
 STRUCT
     // TCP Incoming
-    tcpRecBuf : ARRAY[0..255] OF BYTE;
+    tcpRecBuf : ARRAY[0..8192] OF BYTE;
     pRec : INT;                 // Next incoming byte pos
     pRead : INT;                // Next byte to process
     RecBufFull : BOOL;          // Overflow
 
     // TCP Outgoing
-    tcpSendBuf : ARRAY[0..127] OF BYTE;
+    tcpSendBuf : ARRAY[0..4096] OF BYTE;
     reqSend : BOOL;
     sendSize : INT;
 
-    buffer : ARRAY[0..127] OF BYTE;
+    buffer : ARRAY[0..4096] OF BYTE;
     nextMsgId : INT;
     _state : INT := -1;
     packet_state : INT;
@@ -20,30 +20,42 @@ STRUCT
     lastInActivity : TIME;
     lastOutActivity : TIME;
     runTime : TIME;
-    ethConnected : BOOL;
+    ethTCPConnected : BOOL;
+    
+    mqttErrorCode : INT := 0;
+    recPublishPacketID : INT := 0;
+    
+    tcp_sendBufferFull : BOOL := false;
 END_STRUCT
 BEGIN
 END_DATA_BLOCK
 (**************************************************************)
 
-DATA_BLOCK Globals
+DATA_BLOCK mqttGlobals
 STRUCT
-    MQTT_KEEPALIVE    : TIME := T#15s;
+    MQTT_KEEPALIVE      : TIME := T#15s;
     MQTT_SOCKET_TIMEOUT : TIME := T#15s;
 
-    // States
+    TCP_RECVBUFFERSIZE  :   INT :=  8192;   // size of TCP receive buffer
+    TCP_MAXRECVSIZE     :   INT := 4096;   // TCP max receive packet size
+    TCP_SENDBUFFERSIZE  :   INT := 4096;
+    
+    // MQtt States
     MQTT_CONNECTION_TIMEOUT     : INT := -4;
     MQTT_CONNECTION_LOST        : INT := -3;
     MQTT_CONNECT_FAILED         : INT := -2;
     MQTT_DISCONNECTED           : INT := -1;
     MQTT_CONNECTING             : INT := 0;
     MQTT_CONNECTED              : INT := 1;
-    MQTT_CONN_BAD_PROTOCOL      : INT := 2;
-    MQTT_CONN_BAD_CLIENT_ID     : INT := 3;
-    MQTT_CONN_UNAVAILABLE       : INT := 4;
-    MQTT_CONN_BAD_CREDEN        : INT := 5;
-    MQTT_CONN_UNAUTHORIZED      : INT := 6;
 
+    MQTT_CONN_ACCEPTED       : INT := 0;
+    MQTT_CONN_BAD_PROTOCOL   : INT := 1;
+    MQTT_CONN_BAD_CLIENT_ID  : INT := 2;
+    MQTT_CONN_SRVUNAVAIL     : INT := 3;
+    MQTT_CONN_BAD_CREDEN     : INT := 4;
+    MQTT_CONN_UNAUTHORIZED   : INT := 5;
+        
+            
     // Packet headers
     MQTTCONNECT         : INT := 16;
     MQTTCONNACK         : INT := 32;
@@ -62,8 +74,8 @@ STRUCT
     MQTTReserved        : INT := 240;
 
     MQTTQOS0    : INT := 0;
-    MQTTQOS1    : INT := 2;
-    MQTTQOS2    : INT := 4;
+    MQTTQOS1    : INT := 1;
+    MQTTQOS2    : INT := 2;
 END_STRUCT
 BEGIN
 END_DATA_BLOCK
