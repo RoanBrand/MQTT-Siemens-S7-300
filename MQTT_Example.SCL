@@ -1,4 +1,5 @@
 (* Example Application Function Block calling MQTT *)
+
 FUNCTION_BLOCK FB70
 VAR_INPUT
     con : BOOL;     // Rise to Connect
@@ -6,7 +7,6 @@ VAR_INPUT
     pub : BOOL;     // Rise to Publish
     sub : BOOL;     // Rise to Subscribe
     unsub : BOOL;   // Rise to Unsubscribe
-    
 END_VAR
 VAR_TEMP
     i : INT;
@@ -14,14 +14,17 @@ END_VAR
 VAR
     fcon, fpub, fsub,fdiscon,funsub : BOOL; // flags used for rising trigger detection
 
-    publishData : ARRAY[0..1024] OF BYTE;
     receivedData : ARRAY[0..1024] OF BYTE;
+    
     willData : ARRAY[0..128] OF BYTE;
     willDataLength : INT := 0;
     pubAckReceived : BOOL :=0;
-    payloadInt : INT := 0;
+    
     myPublishMessageID : INT := 0;
-    // CRC : CRC_Gen;  // optional: using CRC_GEN function for CRC calculation from oscat.de PLC Library
+
+    publishPayloadData : ARRAY[0..100] OF BYTE;
+    publishPayloadLength : INT := 0;
+    
 END_VAR
 BEGIN
                    
@@ -29,8 +32,20 @@ BEGIN
 
     // Manual connect. Make con high
     IF con AND NOT fcon THEN
-        //connect(id := 'CPU313C');
-        mqttCONNECT(clientID := 'CPU313C',withUsername:=false,withPassword:=false,cleanSession:=true,withWill:=true,willQos:=0,willRetain:=0,willTopic:='Connection Lost',willPayload:=willData[0],willPayloadLength:=0,username:='a',password:='b');
+        
+        mqttCONNECT( clientID := 'MYRANDOMCLIENTID',
+                     withUsername:=false,
+                     withPassword:=false,
+                     cleanSession:=true,
+                     withWill:=true,
+                     willQos:=0,
+                     willRetain:=0,
+                     willTopic:='Connection Lost',
+                     willPayload:=willData[0],
+                     willPayloadLength:=0,
+                     username:='a',
+                     password:='b'
+                   );
 
     END_IF;
     fcon := con;
@@ -44,29 +59,21 @@ BEGIN
     // Make pub high to publish
     IF pub AND NOT fpub THEN
         
-        (*
-        // optional: CRC calculation for payload with CRC_GEN from oscat.de PLC library, f.e. CRC-8
-        CRC(PT :=  publishData[0] // IN: POINTER
-                      ,SIZE := 36  // IN: INT
-                      ,PL := 8 // IN: INT
-                      ,PN := W#16#0007 // IN: DWORD
-                      ,INIT := 0 // IN: DWORD
-                      ,REV_IN := false   // IN: BOOL
-                      ,REV_OUT := false // IN: BOOL
-                      ,XOR_OUT := 0 // IN: DWORD
-                      ); 
-                    DB70.dbd40 := CRC.CRC_GEN; // OUT: DWORD, CRC to the end of the payload
-         *)           
-
-                     
-         
-        myPublishMessageID := mqttPUBLISH(topic := 'SIEMENSTOPIC', payload := publishData[0], payloadLength := 40, qos := mqttGlobals.MQTTQOS2, retain := false, duplicate := false);
+        myPublishMessageID := mqttPUBLISH( topic := 'SIEMENSTOPIC',
+                                           payload := publishPayloadData,
+                                           payloadLength := publishPayloadLength,
+                                           qos := mqttGlobals.MQTTQOS1,
+                                           retain := false,
+                                           duplicate := false
+                                         );
     END_IF;
     fpub := pub;
 
     // Make sub high to subscribe
     IF sub AND NOT fsub THEN
-        mqttSUBSCRIBE(topic := 'SIEMENSTOPIC',topicQos := mqttGlobals.MQTTQOS0);
+        mqttSUBSCRIBE( topic := 'SIEMENSTOPIC',
+                       topicQos := mqttGlobals.MQTTQOS0
+                      );
     END_IF;
     fsub := sub;
     
@@ -76,41 +83,57 @@ BEGIN
     END_IF;
     funsub := unsub;
 
+
 (* OTHER *)
 
     // Automatic reconnect example if needed
     IF mqttData.ethTCPConnected AND (mqttData._State < 0) THEN
         //connect(id := 'CPU313C');
-        mqttCONNECT(clientID := 'CPU313C',withUsername:=false,withPassword:=false,cleanSession:=true,withWill:=true,willQos:=0,willRetain:=0,willTopic:='Connection Lost',willPayload:=willData[0],willPayloadLength:=0,username:='a',password:='b');
+        mqttCONNECT( clientID := 'CPU313C',
+                     withUsername:=false,
+                     withPassword:=false,
+                     cleanSession:=true,
+                     withWill:=true,
+                     willQos:=0,
+                     willRetain:=0,
+                     willTopic:='Connection Lost',
+                     willPayload:=willData[0],
+                     willPayloadLength:=0,
+                     username:='a',
+                     password:='b'
+                   );
     END_IF;
 
-    // Publish to 'Q' topic to control first output byte of PLC
-    // Use sub command above to subscribe first
-    // First byte of payload (0-7)  -> Output num
-    // Second byte (0 or 1) -> Switch output ON/OFF
-    IF DB71.callback THEN
-        IF DB71.callbackPacketType = mqttGlobals.MQTTPUBLISH THEN
-            DB71.callback := false;
-            IF DB71.pubTopic = 'SIEMENSTOPIC' THEN
-                IF DB71.payloadSize >= 1024 THEN
+
+(* RECEIVING *)
+    
+    IF MQTT_DB.callback THEN
+    
+        // Received a package from a subscription
+        IF MQTT_DB.callbackPacketType = mqttGlobals.MQTTPUBLISH THEN
+            MQTT_DB.callback := false;
+            IF MQTT_DB.pubTopic = 'SIEMENSTOPIC' THEN
+                IF MQTT_DB.payloadSize >= 1024 THEN
                      FOR i:=0 TO 1023 DO
-                        receivedData[i] := DB71.payload[i];
+                        receivedData[i] := MQTT_DB.payload[i];
                     END_FOR;               
                 ELSE
-                    FOR i:=0 TO DB71.payloadSize-1 DO
-                        receivedData[i] := DB71.payload[i];
+                    FOR i:=0 TO MQTT_DB.payloadSize-1 DO
+                        receivedData[i] := MQTT_DB.payload[i];
                     END_FOR;
                END_IF;
                 
             END_IF;
         END_IF;
         
+        // Received a packet from a handshake response
         // Example for Qos1 (Single stage handshake with PUBACK response) or Qo2 (Dual stage handshake with PUBCOMP response)
-        IF (DB71.callbackPacketType = mqttGlobals.MQTTPUBACK) OR  (DB71.callbackPacketType = mqttGlobals.MQTTPUBCOMP) THEN
-            DB71.callback := false;
+        IF (MQTT_DB.callbackPacketType = mqttGlobals.MQTTPUBACK) OR  (MQTT_DB.callbackPacketType = mqttGlobals.MQTTPUBCOMP) THEN
+            MQTT_DB.callback := false;
             pubAckReceived := true;           
         END_IF;
-    END_IF;
+   
+    END_IF; //MQTT_DB.callback
    
 
 END_FUNCTION_BLOCK
@@ -122,6 +145,8 @@ VAR_TEMP
     // Reserved
     info : ARRAY[0..19] OF BYTE;
     // Temporary Variables
+    ptrPayloadTemp : ANY;
+    structPtrPayloadTemp AT ptrPayloadTemp : UDT_STRUCTANYPTR;
 END_VAR
 
 (* IMPORTANT: Uncomment this for PN ethernet
@@ -132,14 +157,16 @@ MQTT.DB71( connectionID := 1  // IN: INT, only used for external ethernet (CP)
            ,ipBlock4 :=  1    // IN: INT, IP address parameter only with PN internal ethernet (PN)
            ,ipPort :=  1883   // IN: INT, IP port parameter only with PN internal ethernet (PN)
            ); 
-*)
+*) 
 
-(* IMPORTANT: Uncomment this for CP ethernet     
-MQTT.DB71( connectionID :=  1    // IN: INT, only used for external ethernet (CP)
-           ,cpLADDR :=  W#16#100 // IN: WORD, only used for external ethhernet (CP)
-           ); 
-           
+(* IMPORTANT: Uncomment this for CP ethernet
+MQTT.MQTT_DB( connectionID :=  1    // IN: INT, only used for external ethernet (CP)
+              ,cpLADDR :=  W#16#100 // IN: WORD, only used for external ethhernet (CP)
+             ); 
+*) 
+
+          
 FB70.DB70();    // Example Application
-*)
+
 END_ORGANIZATION_BLOCK
 
