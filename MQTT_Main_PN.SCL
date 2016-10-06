@@ -575,6 +575,9 @@ CASE (mqttData._state) OF
         
 END_CASE; // mqttData._state
     
-
-
 END_FUNCTION_BLOCK
+
+
+DATA_BLOCK MQTT_DB MQTT
+BEGIN
+END_DATA_BLOCK
