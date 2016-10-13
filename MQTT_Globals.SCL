@@ -1,7 +1,6 @@
 DATA_BLOCK mqttData
 
 TITLE = 'MQTT DATABLOCK'
-VERSION : '1.0'
 AUTHOR : Brand
 
 STRUCT
@@ -39,7 +38,6 @@ END_DATA_BLOCK
 DATA_BLOCK mqttGlobals
 
 TITLE = 'MQTT CONSTANTS'
-VERSION : '1.0'
 AUTHOR : Brand
 
 STRUCT
@@ -49,8 +47,11 @@ STRUCT
     TCP_RECVBUFFERSIZE  :   INT :=  8192;   // size of TCP receive buffer
     TCP_MAXRECVSIZE     :   INT := 4096;   // TCP max receive packet size
     TCP_SENDBUFFERSIZE  :   INT := 4096;
+	TCP_TIMEOUT         :   TIME := T#30s; // timeout value for TCP connection
     
     // MQtt States
+	MQTT_STATE_DISCONNECT       : INT := -6;
+    MQTT_STATE_DISCONNECTING    : INT := -5;
     MQTT_CONNECTION_TIMEOUT     : INT := -4;
     MQTT_CONNECTION_LOST        : INT := -3;
     MQTT_CONNECT_FAILED         : INT := -2;

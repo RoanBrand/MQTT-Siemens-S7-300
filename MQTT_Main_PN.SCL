@@ -22,6 +22,8 @@ CONST
     TCP_STATE_DISCONNECTED    := 6;
     
     // MQTT States
+	MQTT_STATE_DISCONNECT    := -6;
+    MQTT_STATE_DISCONNECTING := -5;
     MQTT_STATE_DISCONNECTED := -1;
     MQTT_STATE_CONNECTING   := 0;
     MQTT_STATE_CONNECTED    := 1;
@@ -111,7 +113,8 @@ VAR
     msgId : INT;
     typeOfPacket : INT;
     
-    runTimer : SFB4;
+    Runtimer : mqttRuntime;
+    TCP_Timer : mqttRuntime;
     resetTime : TIME;
     
     tl : INT;
@@ -255,13 +258,34 @@ CASE (tcpState) OF
        END_IF;
        IF netcmd_error THEN
             cntrl_lastErrStatus := netcmd_error;
+			tcpState := TCP_STATE_DISCONNECTED;
+       END_IF;
+       
+	   // TCP timeout while connecting reset connection state and try again
+	   
+	   IF NOT netcmd_success THEN
+            TCP_Timer(IN := true,RES := false);
+
+            IF TIME_TO_DINT(TCP_TIMER.RTIME) > TIME_TO_DINT(mqttGlobals.TCP_TIMEOUT) THEN
+                tcpState := TCP_STATE_DISCONNECTING;
+            END_IF;
        END_IF;
        
        // *** PN CODE END ****
     ;
     
     TCP_STATE_CONNECTED:
-        // *** PN CODE - NO CODE NEEDED FOR PN HERE ****
+            
+        // *** PN CODE - Check TCP connection state ****
+		
+        NET_RCV(EN_R := false // IN: BOOL
+                ,ID := INT_TO_WORD(connectionID) // IN: WORD
+                ,LEN := 0 // IN: INT
+                ,DATA := tcpRecByte // INOUT: ANY
+               );         
+        IF NET_RCV.STATUS <> W#16#7000 THEN
+            tcpState := TCP_STATE_DISCONNECTING;    
+        END_IF;
     ;
     
     TCP_STATE_DISCONNECTING:
@@ -285,11 +309,40 @@ CASE (tcpState) OF
      TCP_STATE_DISCONNECTED:
         mqttData.ethTCPConnected := false;
         tcpState := TCP_STATE_UNINITIALIZED;
+		TCP_Timer(IN := false,RES := true);
      ;
      
     ELSE:;          
 END_CASE;
 
+(*
+    *******************************************
+    MQTT Timout Handling without TCP Connection
+    *******************************************
+*)
+Runtimer(IN := ((mqttData._state = MQTT_STATE_CONNECTING) OR (mqttData._state = MQTT_STATE_CONNECTED)),RES := false);
+mqttData.runTime := Runtimer.RTIME;
+
+//Recalculate timeouts when timer is set to T#0
+
+IF TIME_TO_DINT(mqttData.runTime) = 0 AND (TIME_TO_DINT(mqttData.lastInActivity) <> 0 OR TIME_TO_DINT(mqttData.lastOutActivity)<> 0) THEN
+    Runtimer.run := TIME_TO_DINT(mqttGlobals.MQTT_KEEPALIVE) / 1000;
+
+    IF TIME_TO_DINT(mqttData.lastOutActivity) <> 0 THEN
+        mqttData.lastOutActivity := mqttGlobals.MQTT_KEEPALIVE - DINT_TO_TIME(2073600000 - TIME_TO_DINT(mqttData.lastOutActivity));
+    END_IF;
+
+    IF TIME_TO_DINT(mqttData.lastInActivity) <> 0 THEN
+        mqttData.lastInActivity :=  mqttGlobals.MQTT_KEEPALIVE - DINT_TO_TIME(2073600000 - TIME_TO_DINT(mqttData.lastInActivity));
+    END_IF;
+END_IF;
+
+IF (mqttData._state = MQTT_STATE_CONNECTING OR mqttData._state = MQTT_STATE_CONNECTED) AND tcpState <> TCP_STATE_CONNECTED THEN
+    IF ((mqttData.runTime - mqttData.lastInActivity) > mqttGlobals.MQTT_KEEPALIVE) OR ((mqttData.runTime - mqttData.lastOutActivity) > mqttGlobals.MQTT_KEEPALIVE) THEN
+        // Connection Timeout!
+        mqttData._state := MQTT_STATE_DISCONNECTED;
+    END_IF;
+END_IF;
 
 (* 
     ******************************
@@ -388,11 +441,6 @@ IF (mqttData.pRec >= mqttData.pRead) THEN
 ELSE
     recBufLeft := mqttGlobals.TCP_RECVBUFFERSIZE - (mqttData.pRead - mqttData.pRec);
 END_IF;
-
-
-// Connection time
-runTimer(IN := true, PT := T#24D);
-mqttData.runTime := runTimer.ET;
 
 
 (*
@@ -585,7 +633,6 @@ END_FUNCTION_BLOCK
 DATA_BLOCK MQTT_DB MQTT
 
 TITLE = 'MQTT MAIN DATABLOCK'
-VERSION : '1.0'
 AUTHOR : Maul
 
 BEGIN
