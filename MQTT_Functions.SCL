@@ -3,9 +3,12 @@
     - connect method: handle reset of message ID according to cleanSessio flag
 
 *)
-
 TYPE UDT_STRUCTANYPTR
-TITLE = DISSASEMBLED ANYPOINTER
+
+TITLE = 'DISSASEMBLED ANYPOINTER'
+VERSION : '1.0'
+AUTHOR : Brand
+
     STRUCT
         S7Code : BYTE; // Code for S7 = 0x10
         DataType : BYTE; // Code for data type = 0x02 = byte
@@ -20,6 +23,11 @@ END_TYPE
 
 
 FUNCTION mqttGetNextMessageID : INT
+
+TITLE = 'MQTT Message ID Generator'
+VERSION : '1.0'
+AUTHOR : Brand
+
 BEGIN
     mqttData.nextMsgId := mqttData.nextMsgId + 1;
     
@@ -39,6 +47,10 @@ END_FUNCTION
    ***********************************************************************
 *)
 FUNCTION mqttCONNECT : VOID
+
+TITLE = 'MQTT Connect Function'
+VERSION : '1.0'
+AUTHOR : Brand
 
 VAR_INPUT
     clientID     : STRING[23];
@@ -181,6 +193,11 @@ END_FUNCTION
    **********************************************************************************
 *)
 FUNCTION mqttSimpleCONNECT : VOID
+
+TITLE = 'MQTT Connect Function (basic parameters)'
+VERSION : '1.0'
+AUTHOR : Brand
+
 VAR_INPUT
     clientID : STRING[23];
     cleanSession : BOOL;
@@ -217,6 +234,11 @@ END_FUNCTION
    **********************************************************************************
 *)
 FUNCTION mqttDISCONNECT : VOID
+
+TITLE = 'MQTT Disconnect Function'
+VERSION : '1.0'
+AUTHOR : Brand
+
 BEGIN
     mqttData.buffer[0] := INT_TO_BYTE(mqttGlobals.MQTTDISCONNECT);
     mqttData.buffer[1] := 0;
@@ -234,6 +256,11 @@ END_FUNCTION
    **********************************************************************************
 *)
 FUNCTION mqttSUBSCRIBE : VOID
+
+TITLE = 'MQTT Subscribe Function'
+VERSION : '1.0'
+AUTHOR : Brand
+
 VAR_INPUT
     topic : STRING[50];
     topicQos: INT := 0; // QoS Level 0,1,2
@@ -282,6 +309,11 @@ END_FUNCTION
    **********************************************************************************
 *)
 FUNCTION mqttUNSUBSCRIBE : VOID
+
+TITLE = 'MQTT Unsubscribe Function'
+VERSION : '1.0'
+AUTHOR : Brand
+
 VAR_INPUT
     topic : STRING[50];
 END_VAR
@@ -331,6 +363,11 @@ END_FUNCTION
    **********************************************************************************
 *)
 FUNCTION mqttPUBLISH : INT
+
+TITLE = 'MQTT Publish Function'
+VERSION : '1.0'
+AUTHOR : Brand
+
 VAR_INPUT
     topic : STRING[127];
     payload : ANY;
@@ -469,6 +506,11 @@ END_FUNCTION
    **********************************************************************************
 *)
 FUNCTION mqttPUBACK : VOID
+
+TITLE = 'MQTT Publish Acknowledge QoS1 Function'
+VERSION : '1.0'
+AUTHOR : Brand
+
 VAR_INPUT
     packetIdMSB : BYTE;
     packetIdLSB : BYTE;

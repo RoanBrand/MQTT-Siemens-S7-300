@@ -1,6 +1,10 @@
 (* Example Application Function Block calling MQTT *)
-
 FUNCTION_BLOCK FB70
+
+TITLE = 'MQTT Example Application'
+VERSION : '1.0'
+AUTHOR : Brand
+
 VAR_INPUT
     con : BOOL;     // Rise to Connect
     discon : BOOL;  // Rise to Disconnect

@@ -1,4 +1,9 @@
 DATA_BLOCK mqttData
+
+TITLE = 'MQTT DATABLOCK'
+VERSION : '1.0'
+AUTHOR : Brand
+
 STRUCT
     // TCP Incoming
     tcpRecBuf : ARRAY[0..8192] OF BYTE;
@@ -32,6 +37,11 @@ END_DATA_BLOCK
 (**************************************************************)
 
 DATA_BLOCK mqttGlobals
+
+TITLE = 'MQTT CONSTANTS'
+VERSION : '1.0'
+AUTHOR : Brand
+
 STRUCT
     MQTT_KEEPALIVE      : TIME := T#15s;
     MQTT_SOCKET_TIMEOUT : TIME := T#15s;
