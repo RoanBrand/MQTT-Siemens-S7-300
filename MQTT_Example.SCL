@@ -64,6 +64,7 @@ BEGIN
     IF pub AND NOT fpub THEN
         
         myPublishMessageID := mqttPUBLISH( topic := 'SIEMENSTOPIC',
+		                                   messageid := 0, //message id = 0 autogenerate it, > 0 manually set
                                            payload := publishPayloadData,
                                            payloadLength := publishPayloadLength,
                                            qos := mqttGlobals.MQTTQOS1,

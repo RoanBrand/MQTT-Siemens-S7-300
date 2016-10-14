@@ -369,6 +369,7 @@ AUTHOR : Brand
 
 VAR_INPUT
     topic : STRING[127];
+	messageid : INT;
     payload : ANY;
     payloadLength : INT;
     qos: INT := 0; // QoS Level 0,1,2
@@ -451,7 +452,11 @@ length := mqttWriteString(str := holdstring, pos := length);
 
 // set MessageID if qos level 1 or 2
 IF (qos = mqttGlobals.MQTTQOS1) OR (qos = mqttGlobals.MQTTQOS2) THEN
-    thisMessageID := mqttGetNextMessageID();
+    IF messageid > 0 THEN
+        thisMessageID := messageid;
+    ELSE
+        thisMessageID := mqttGetNextMessageID();
+    END_IF;
     
     // insert message ID
     mqttData.buffer[length] := DWORD_TO_BYTE(SHR(IN := INT_TO_DWORD(thisMessageID), N := 8));
