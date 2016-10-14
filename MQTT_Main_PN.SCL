@@ -341,6 +341,9 @@ IF (mqttData._state = MQTT_STATE_CONNECTING OR mqttData._state = MQTT_STATE_CONN
     IF ((mqttData.runTime - mqttData.lastInActivity) > mqttGlobals.MQTT_KEEPALIVE) OR ((mqttData.runTime - mqttData.lastOutActivity) > mqttGlobals.MQTT_KEEPALIVE) THEN
         // Connection Timeout!
         mqttData._state := MQTT_STATE_DISCONNECTED;
+		mqttData.reqSend := false;
+        act_send := false;
+        snd_busy := false;
     END_IF;
 END_IF;
 

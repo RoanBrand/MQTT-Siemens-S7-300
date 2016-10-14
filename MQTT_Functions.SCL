@@ -271,6 +271,11 @@ VAR_TEMP
 END_VAR
 BEGIN
 
+// if there's no MQTT connection return
+IF mqttData._state = mqttGlobals.MQTT_DISCONNECTED THEN
+    RETURN;
+END_IF;
+
 l_topic := topic;
 
 // check if topic is not longer than 119 bytes
@@ -323,6 +328,11 @@ VAR_TEMP
     fixedHeader : BYTE;
 END_VAR
 BEGIN
+
+// if there's no MQTT connection return
+IF mqttData._state = mqttGlobals.MQTT_DISCONNECTED THEN
+    RETURN;
+END_IF;
 
 l_topic := topic;
 
@@ -399,6 +409,12 @@ BEGIN
 
 // set return value (message ID) to 0
 mqttPublish := 0;
+
+// if there's no MQTT connection return an error code
+IF mqttData._state = mqttGlobals.MQTT_DISCONNECTED THEN
+    mqttPublish := -1;
+    RETURN;
+END_IF;
 
 // Fixed header, byte 1
 // +--------+---+-----+---+---+----------+-----+-----+--------+
