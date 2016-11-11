@@ -299,9 +299,8 @@ CASE (tcpState) OF
                   netcmd_busy    := NET_DISCON.BUSY; // OUT: BOOL
                   netcmd_error   := NET_DISCON.ERROR; // OUT: BOOL
                   netcmd_status  := NET_DISCON.STATUS; // OUT: WORD
-        IF netcmd_success THEN
-            tcpState := TCP_STATE_DISCONNECTED;
-        END_IF;
+				  
+        tcpState := TCP_STATE_DISCONNECTED;
         
         // *** PN CODE END ****
      ;
