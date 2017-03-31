@@ -150,6 +150,7 @@ VAR
     NET_DISCON : TDISCON;
     NET_SEND   : TSEND;
     NET_RCV    : TRCV;
+	BUSY_TIMER : TON;
     
     NET_CONFIG : UDT_NET_CONFIG;
 END_VAR
@@ -351,7 +352,9 @@ END_IF;
     TCP/IP Sending and Receiving
     ******************************
 *)
-IF NOT (tcpState = TCP_STATE_CONNECTED) THEN
+IF NOT (tcpState = TCP_STATE_CONNECTED) THEN // stop if there's no tcp connection 
+    snd_busy := false;
+    act_send := false; 
     RETURN;
 END_IF;
   
@@ -359,6 +362,17 @@ END_IF;
 IF (mqttData.reqSend AND NOT snd_busy) THEN
     mqttData.reqSend := false;
     act_send := true;
+END_IF;
+
+IF mqttData.reqSend AND snd_busy THEN
+   (* Just a try to stop the process from deadlocking when TCP connection went down *)
+    BUSY_TIMER(IN := true, PT := T#500MS);
+    
+    IF BUSY_TIMER.Q THEN
+        snd_busy := false; // simple reset busy because something went clearly wrong here ...
+        BUSY_TIMER(IN := false, PT := T#500MS);
+    END_IF;
+    
 END_IF;
 
 
