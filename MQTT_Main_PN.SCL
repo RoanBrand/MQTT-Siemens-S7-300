@@ -22,11 +22,11 @@ CONST
     TCP_STATE_DISCONNECTED    := 6;
     
     // MQTT States
-	MQTT_STATE_DISCONNECT    := -6;
+	  MQTT_STATE_DISCONNECT    := -6;
     MQTT_STATE_DISCONNECTING := -5;
-    MQTT_STATE_DISCONNECTED := -1;
-    MQTT_STATE_CONNECTING   := 0;
-    MQTT_STATE_CONNECTED    := 1;
+    MQTT_STATE_DISCONNECTED  := -1;
+    MQTT_STATE_CONNECTING    := 0;
+    MQTT_STATE_CONNECTED     := 1;
     
     // packet reading States
     WAIT_FOR_RECEIVED_PACKET := 0;
@@ -204,6 +204,7 @@ CASE (tcpState) OF
         // *** PN CODE ****
         
         // Load IP parameters to NET_CONFIG DB variables for usage in TCON
+        NET_CONFIG.id            := INT_TO_WORD(connectionID);
         NET_CONFIG.rem_staddr[1] := INT_TO_BYTE(ipBlock1);
         NET_CONFIG.rem_staddr[2] := INT_TO_BYTE(ipBlock2);
         NET_CONFIG.rem_staddr[3] := INT_TO_BYTE(ipBlock3);
@@ -281,7 +282,7 @@ CASE (tcpState) OF
 		
         NET_RCV(EN_R := false // IN: BOOL
                 ,ID := INT_TO_WORD(connectionID) // IN: WORD
-                ,LEN := 0 // IN: INT
+                ,LEN := 1 // IN: INT
                 ,DATA := tcpRecByte // INOUT: ANY
                );         
         IF NET_RCV.STATUS <> W#16#7000 THEN
@@ -418,7 +419,7 @@ END_IF;
 // *** PN CODE ****
 NET_RCV(EN_R  := true // IN: BOOL
         ,ID   := INT_TO_WORD(connectionID) // IN: WORD
-        ,LEN  := netcmd_datalength // IN: INT
+        ,LEN  := 1 // IN: INT
         ,DATA := tcpRecByte // INOUT: ANY
        ); 
        netcmd_datareceived := NET_RCV.NDR; // OUT: BOOL
@@ -561,8 +562,8 @@ CASE (mqttData._state) OF
                         CASE (typeOfPacket) OF
                             
                             MQTT_PUBLISH:
-                                // received a PUBLISH, 3.3 PUBLISH – Publish message
-                                // refer to MQTT Docs. section 3.3 PUBLISH – Publish message
+                                // received a PUBLISH, 3.3 PUBLISH Â– Publish message
+                                // refer to MQTT Docs. section 3.3 PUBLISH Â– Publish message
                                 
                                 tl := WORD_TO_INT(SHL(IN := BYTE_TO_WORD(mqttData.buffer[myPacketReader.lengthLength+1]), N := 8)) + BYTE_TO_INT(mqttData.buffer[myPacketReader.lengthLength+2]);
                                 FOR i := 0 TO tl-1 DO
@@ -575,6 +576,8 @@ CASE (mqttData._state) OF
                                     payload[i] := mqttData.buffer[paylPos+i];
                                 END_FOR;
                                 payloadSize := paylSize;
+                                callbackPacketType := mqttGlobals.MQTTPUBLISH;
+
                                 callback := true;
                                 
                                 // Check if the Publish messag has QoS = 1, if yes then send PUBACK response
@@ -585,7 +588,7 @@ CASE (mqttData._state) OF
                             
                             MQTT_PINGRESP:
                                 // received a PINGRESP, part of MQTT 3.1.2.10 Keep Alive
-                                // (refer MQTT Docs. section 3.1.2.10 Keep Alive, 3.12 PINGREQ – PING request, 3.13 PINGRESP – PING response)
+                                // (refer MQTT Docs. section 3.1.2.10 Keep Alive, 3.12 PINGREQ Â– PING request, 3.13 PINGRESP Â– PING response)
                                 
                                 mqttData.pingOutstanding := false;
                             ;
