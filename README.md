@@ -43,22 +43,9 @@ I am locally connecting to a Mosquitto broker.
 It should work with most S7-300/400 CPU's.
 This code is written in Step7 SCL v5.3 SP1. It probably needs modification for it to compile in TIA.
 
-# How to Compile/Use in your project
+# Setup the Step7 project
 
-*Important:*
-
-There are two Makefiles:
-
-- Makefile-CP will compile the project with external ethernet support (CP, f.e. CP-343)
-- Makefile-PN will compile the project with internal ethernet support (PN)
-
-only compile the Makefile your PLC setup needs.
-
-The following needs to be setup in you project in Simatic Manager:
-
-1. In SCL Editor Options->Customize set "Create block numbers automatically"
-
-2. You need to add the following Objects Library to your project:
+You need to add the following Objects Library blocks to your project:
 
    *Only needed for internal ethernet support (PN):*
    Library: Standard Library -> Communication Blocks -> Blocks
@@ -90,14 +77,27 @@ The following needs to be setup in you project in Simatic Manager:
    
    *Important*: there will be an import conflict between FC10 AG_CTRL and FC10 EQ_STRING, as a solution rename one of the the FC-numbers during import
    
-   
-3. You have to compile the Makefile two times because there is still some DB creation problem.
-   The second run will succeed.
 
-   
-4. *Imporant:* You must call the MQTT function block in your OB1 program loop.
-   
-5. Optional: You may compile the MQTT_Example.
+## Compiling the project
+
+### Block numbers generation
+There are two ways to generate the Block numbers required by the project. Block numbers can be generated automatically or they can be manually setup in the projects Symbols table.
+Block number auto generation can be configured by setting the “Create block numbers automatically” option in the Options -> Customize menu of the SCL editor, in the “General” tab the “Create block numbers automatically” option must be set.
+If block numbers must be set manually, open the “S7 Symbols.xlsx” document in the Support folder, set the block numbers according to your requirements and copy&paste them into the S7 projects Symbols table.
+
+###Compiling the S7 MQTT project
+There are two Makefiles, please choose the right one for the Ethernet requirements (ProfiNet, CP) of the project:
+
+ - Makefile-CP will compile the project with CP Ethernet support (CP, e.g. CP-343)
+ - Makefile-PN will compile the project with ProfiNet (integrated) Ethernet support (PN)
+
+ Important: only compile the Makefile that suits your requirements.
+
+*Imporant:* You must call the MQTT function block in your OB1 program loop.
+ 
+### Example programm
+Optional: You may compile the MQTT_Example.scl
+  
    
 ## Network Configuration
 The MQTT FB can use the internal Ethernet adapter of a CPU (PN, choose MQTT_Main_PN.scl) or an external Ethernet adapter (CP, choose MQTT_Main_CP.scl).

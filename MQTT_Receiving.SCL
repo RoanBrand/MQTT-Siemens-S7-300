@@ -1,10 +1,20 @@
 FUNCTION mqttAvailable : BOOL
+
+TITLE = 'MQTT mqttAvailable Helper Function'
+VERSION : '1.0'
+AUTHOR : Brand
+
 BEGIN
 mqttAvailable := (mqttData.pRead <> mqttData.pRec) OR mqttData.RecBufFull;
 END_FUNCTION
 (**************************************************************)
 
 FUNCTION mqttReadByte : BYTE
+
+TITLE = 'MQTT mqttReadByte Helper Function'
+VERSION : '1.0'
+AUTHOR : Brand
+
 BEGIN
 mqttReadByte := mqttData.tcpRecBuf[mqttData.pRead];
 mqttData.pRead := mqttData.pRead + 1;
@@ -16,6 +26,11 @@ END_FUNCTION
 (**************************************************************)
 
 FUNCTION mqttReadByteToBuf : INT
+
+TITLE = 'MQTT mqttReadByteToBuf Helper Function'
+VERSION : '1.0'
+AUTHOR : Brand
+
 VAR_INPUT
     pos : INT;
 END_VAR
@@ -33,6 +48,11 @@ END_FUNCTION
 (**************************************************************)
 
 FUNCTION_BLOCK mqttPacketReader
+
+TITLE = 'MQTT mqttPacketReader Helper Function'
+VERSION : '1.0'
+AUTHOR : Brand
+
 VAR_IN_OUT
     iBegin : BOOL;
 END_VAR

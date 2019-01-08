@@ -7,6 +7,10 @@
 
 FUNCTION_BLOCK MQTT
 
+TITLE = 'MQTT MAIN Function(PN)'
+VERSION : '1.0'
+AUTHOR : Maul
+
 CONST
     // TCP States
     TCP_STATE_UNINITIALIZED   := 0;
@@ -18,9 +22,11 @@ CONST
     TCP_STATE_DISCONNECTED    := 6;
     
     // MQTT States
-    MQTT_STATE_DISCONNECTED := -1;
-    MQTT_STATE_CONNECTING   := 0;
-    MQTT_STATE_CONNECTED    := 1;
+	  MQTT_STATE_DISCONNECT    := -6;
+    MQTT_STATE_DISCONNECTING := -5;
+    MQTT_STATE_DISCONNECTED  := -1;
+    MQTT_STATE_CONNECTING    := 0;
+    MQTT_STATE_CONNECTED     := 1;
     
     // packet reading States
     WAIT_FOR_RECEIVED_PACKET := 0;
@@ -107,7 +113,8 @@ VAR
     msgId : INT;
     typeOfPacket : INT;
     
-    runTimer : SFB4;
+    Runtimer : mqttRuntime;
+    TCP_Timer : mqttRuntime;
     resetTime : TIME;
     
     tl : INT;
@@ -143,6 +150,7 @@ VAR
     NET_DISCON : TDISCON;
     NET_SEND   : TSEND;
     NET_RCV    : TRCV;
+	BUSY_TIMER : TON;
     
     NET_CONFIG : UDT_NET_CONFIG;
 END_VAR
@@ -196,6 +204,7 @@ CASE (tcpState) OF
         // *** PN CODE ****
         
         // Load IP parameters to NET_CONFIG DB variables for usage in TCON
+        NET_CONFIG.id            := INT_TO_WORD(connectionID);
         NET_CONFIG.rem_staddr[1] := INT_TO_BYTE(ipBlock1);
         NET_CONFIG.rem_staddr[2] := INT_TO_BYTE(ipBlock2);
         NET_CONFIG.rem_staddr[3] := INT_TO_BYTE(ipBlock3);
@@ -251,13 +260,34 @@ CASE (tcpState) OF
        END_IF;
        IF netcmd_error THEN
             cntrl_lastErrStatus := netcmd_error;
+			tcpState := TCP_STATE_DISCONNECTED;
+       END_IF;
+       
+	   // TCP timeout while connecting reset connection state and try again
+	   
+	   IF NOT netcmd_success THEN
+            TCP_Timer(IN := true,RES := false);
+
+            IF TIME_TO_DINT(TCP_TIMER.RTIME) > TIME_TO_DINT(mqttGlobals.TCP_TIMEOUT) THEN
+                tcpState := TCP_STATE_DISCONNECTING;
+            END_IF;
        END_IF;
        
        // *** PN CODE END ****
     ;
     
     TCP_STATE_CONNECTED:
-        // *** PN CODE - NO CODE NEEDED FOR PN HERE ****
+            
+        // *** PN CODE - Check TCP connection state ****
+		
+        NET_RCV(EN_R := false // IN: BOOL
+                ,ID := INT_TO_WORD(connectionID) // IN: WORD
+                ,LEN := 1 // IN: INT
+                ,DATA := tcpRecByte // INOUT: ANY
+               );         
+        IF NET_RCV.STATUS <> W#16#7000 THEN
+            tcpState := TCP_STATE_DISCONNECTING;    
+        END_IF;
     ;
     
     TCP_STATE_DISCONNECTING:
@@ -271,9 +301,8 @@ CASE (tcpState) OF
                   netcmd_busy    := NET_DISCON.BUSY; // OUT: BOOL
                   netcmd_error   := NET_DISCON.ERROR; // OUT: BOOL
                   netcmd_status  := NET_DISCON.STATUS; // OUT: WORD
-        IF netcmd_success THEN
-            tcpState := TCP_STATE_DISCONNECTED;
-        END_IF;
+				  
+        tcpState := TCP_STATE_DISCONNECTED;
         
         // *** PN CODE END ****
      ;
@@ -281,18 +310,52 @@ CASE (tcpState) OF
      TCP_STATE_DISCONNECTED:
         mqttData.ethTCPConnected := false;
         tcpState := TCP_STATE_UNINITIALIZED;
+		TCP_Timer(IN := false,RES := true);
      ;
      
     ELSE:;          
 END_CASE;
 
+(*
+    *******************************************
+    MQTT Timout Handling without TCP Connection
+    *******************************************
+*)
+Runtimer(IN := ((mqttData._state = MQTT_STATE_CONNECTING) OR (mqttData._state = MQTT_STATE_CONNECTED)),RES := false);
+mqttData.runTime := Runtimer.RTIME;
+
+//Recalculate timeouts when timer is set to T#0
+
+IF TIME_TO_DINT(mqttData.runTime) = 0 AND (TIME_TO_DINT(mqttData.lastInActivity) <> 0 OR TIME_TO_DINT(mqttData.lastOutActivity)<> 0) THEN
+    Runtimer.run := TIME_TO_DINT(mqttGlobals.MQTT_KEEPALIVE) / 1000;
+
+    IF TIME_TO_DINT(mqttData.lastOutActivity) <> 0 THEN
+        mqttData.lastOutActivity := mqttGlobals.MQTT_KEEPALIVE - DINT_TO_TIME(2073600000 - TIME_TO_DINT(mqttData.lastOutActivity));
+    END_IF;
+
+    IF TIME_TO_DINT(mqttData.lastInActivity) <> 0 THEN
+        mqttData.lastInActivity :=  mqttGlobals.MQTT_KEEPALIVE - DINT_TO_TIME(2073600000 - TIME_TO_DINT(mqttData.lastInActivity));
+    END_IF;
+END_IF;
+
+IF (mqttData._state = MQTT_STATE_CONNECTING OR mqttData._state = MQTT_STATE_CONNECTED) AND tcpState <> TCP_STATE_CONNECTED THEN
+    IF ((mqttData.runTime - mqttData.lastInActivity) > mqttGlobals.MQTT_KEEPALIVE) OR ((mqttData.runTime - mqttData.lastOutActivity) > mqttGlobals.MQTT_KEEPALIVE) THEN
+        // Connection Timeout!
+        mqttData._state := MQTT_STATE_DISCONNECTED;
+		mqttData.reqSend := false;
+        act_send := false;
+        snd_busy := false;
+    END_IF;
+END_IF;
 
 (* 
     ******************************
     TCP/IP Sending and Receiving
     ******************************
 *)
-IF NOT (tcpState = TCP_STATE_CONNECTED) THEN
+IF NOT (tcpState = TCP_STATE_CONNECTED) THEN // stop if there's no tcp connection 
+    snd_busy := false;
+    act_send := false; 
     RETURN;
 END_IF;
   
@@ -300,6 +363,17 @@ END_IF;
 IF (mqttData.reqSend AND NOT snd_busy) THEN
     mqttData.reqSend := false;
     act_send := true;
+END_IF;
+
+IF mqttData.reqSend AND snd_busy THEN
+   (* Just a try to stop the process from deadlocking when TCP connection went down *)
+    BUSY_TIMER(IN := true, PT := T#500MS);
+    
+    IF BUSY_TIMER.Q THEN
+        snd_busy := false; // simple reset busy because something went clearly wrong here ...
+        BUSY_TIMER(IN := false, PT := T#500MS);
+    END_IF;
+    
 END_IF;
 
 
@@ -345,7 +419,7 @@ END_IF;
 // *** PN CODE ****
 NET_RCV(EN_R  := true // IN: BOOL
         ,ID   := INT_TO_WORD(connectionID) // IN: WORD
-        ,LEN  := netcmd_datalength // IN: INT
+        ,LEN  := 1 // IN: INT
         ,DATA := tcpRecByte // INOUT: ANY
        ); 
        netcmd_datareceived := NET_RCV.NDR; // OUT: BOOL
@@ -384,11 +458,6 @@ IF (mqttData.pRec >= mqttData.pRead) THEN
 ELSE
     recBufLeft := mqttGlobals.TCP_RECVBUFFERSIZE - (mqttData.pRead - mqttData.pRec);
 END_IF;
-
-
-// Connection time
-runTimer(IN := true, PT := T#24D);
-mqttData.runTime := runTimer.ET;
 
 
 (*
@@ -493,8 +562,8 @@ CASE (mqttData._state) OF
                         CASE (typeOfPacket) OF
                             
                             MQTT_PUBLISH:
-                                // received a PUBLISH, 3.3 PUBLISH – Publish message
-                                // refer to MQTT Docs. section 3.3 PUBLISH – Publish message
+                                // received a PUBLISH, 3.3 PUBLISH Â– Publish message
+                                // refer to MQTT Docs. section 3.3 PUBLISH Â– Publish message
                                 
                                 tl := WORD_TO_INT(SHL(IN := BYTE_TO_WORD(mqttData.buffer[myPacketReader.lengthLength+1]), N := 8)) + BYTE_TO_INT(mqttData.buffer[myPacketReader.lengthLength+2]);
                                 FOR i := 0 TO tl-1 DO
@@ -507,6 +576,8 @@ CASE (mqttData._state) OF
                                     payload[i] := mqttData.buffer[paylPos+i];
                                 END_FOR;
                                 payloadSize := paylSize;
+                                callbackPacketType := mqttGlobals.MQTTPUBLISH;
+
                                 callback := true;
                                 
                                 // Check if the Publish messag has QoS = 1, if yes then send PUBACK response
@@ -517,7 +588,7 @@ CASE (mqttData._state) OF
                             
                             MQTT_PINGRESP:
                                 // received a PINGRESP, part of MQTT 3.1.2.10 Keep Alive
-                                // (refer MQTT Docs. section 3.1.2.10 Keep Alive, 3.12 PINGREQ – PING request, 3.13 PINGRESP – PING response)
+                                // (refer MQTT Docs. section 3.1.2.10 Keep Alive, 3.12 PINGREQ Â– PING request, 3.13 PINGRESP Â– PING response)
                                 
                                 mqttData.pingOutstanding := false;
                             ;
@@ -575,6 +646,10 @@ CASE (mqttData._state) OF
         
 END_CASE; // mqttData._state
     
-
-
 END_FUNCTION_BLOCK
+
+
+DATA_BLOCK MQTT_DB MQTT
+
+BEGIN
+END_DATA_BLOCK

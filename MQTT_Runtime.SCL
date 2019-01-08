@@ -1,0 +1,68 @@
+FUNCTION_BLOCK mqttRuntime
+
+TITLE = 'Runtimercounter'
+VERSION : '1.0'
+AUTHOR : Groschke
+
+VAR_INPUT
+    IN      :   BOOL;    //
+    RES     :   BOOL;    // manuell reset
+END_VAR
+
+VAR_OUTPUT
+    RTIME   :   TIME;   // maximal value is 24Days 
+END_VAR
+
+VAR
+    last    :   DINT;
+    now     :   DINT;   
+    run     :   DINT;   // in secs
+    FP_IN   :   BOOL;
+END_VAR
+
+LABEL
+    Out;
+END_LABEL
+
+BEGIN
+
+IF IN AND NOT FP_IN THEN
+    last := 0;
+    FP_IN := true;
+END_IF;
+
+IF NOT IN AND FP_IN THEN
+    FP_IN := false;
+END_IF;
+
+
+IF IN AND NOT RES THEN
+    now := DWORD_TO_DINT(Unixtime());
+    IF last = 0 THEN
+        last := now;
+        GOTO Out;
+    ELSE
+        run := run + (now - last);
+        last := now;
+    END_IF;     
+    
+END_IF;
+   
+IF IN AND RES THEN
+    run := 0;
+    now := 0;
+    last := 0;
+ELSIF NOT IN AND RES THEN
+    run := 0;
+    now := 0;
+    last := 0;
+END_IF;
+
+IF run >= 2073600 THEN // avoid overflow of time typ 
+    run := 0;
+END_IF;
+
+Out: RTIME := DINT_TO_TIME(run * 1000);
+
+END_FUNCTION_BLOCK
+

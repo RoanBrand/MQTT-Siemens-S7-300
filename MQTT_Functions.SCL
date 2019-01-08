@@ -3,9 +3,11 @@
     - connect method: handle reset of message ID according to cleanSessio flag
 
 *)
-
 TYPE UDT_STRUCTANYPTR
-TITLE = DISSASEMBLED ANYPOINTER
+
+TITLE = 'DISSASEMBLED ANYPOINTER'
+AUTHOR : Brand
+
     STRUCT
         S7Code : BYTE; // Code for S7 = 0x10
         DataType : BYTE; // Code for data type = 0x02 = byte
@@ -20,6 +22,11 @@ END_TYPE
 
 
 FUNCTION mqttGetNextMessageID : INT
+
+TITLE = 'MQTT Message ID Generator'
+VERSION : '1.0'
+AUTHOR : Brand
+
 BEGIN
     mqttData.nextMsgId := mqttData.nextMsgId + 1;
     
@@ -39,6 +46,10 @@ END_FUNCTION
    ***********************************************************************
 *)
 FUNCTION mqttCONNECT : VOID
+
+TITLE = 'MQTT Connect Function'
+VERSION : '1.0'
+AUTHOR : Brand
 
 VAR_INPUT
     clientID     : STRING[23];
@@ -181,6 +192,11 @@ END_FUNCTION
    **********************************************************************************
 *)
 FUNCTION mqttSimpleCONNECT : VOID
+
+TITLE = 'MQTT Connect Function (basic parameters)'
+VERSION : '1.0'
+AUTHOR : Brand
+
 VAR_INPUT
     clientID : STRING[23];
     cleanSession : BOOL;
@@ -217,6 +233,11 @@ END_FUNCTION
    **********************************************************************************
 *)
 FUNCTION mqttDISCONNECT : VOID
+
+TITLE = 'MQTT Disconnect Function'
+VERSION : '1.0'
+AUTHOR : Brand
+
 BEGIN
     mqttData.buffer[0] := INT_TO_BYTE(mqttGlobals.MQTTDISCONNECT);
     mqttData.buffer[1] := 0;
@@ -234,6 +255,11 @@ END_FUNCTION
    **********************************************************************************
 *)
 FUNCTION mqttSUBSCRIBE : VOID
+
+TITLE = 'MQTT Subscribe Function'
+VERSION : '1.0'
+AUTHOR : Brand
+
 VAR_INPUT
     topic : STRING[50];
     topicQos: INT := 0; // QoS Level 0,1,2
@@ -244,6 +270,11 @@ VAR_TEMP
     thisMessageID : INT;
 END_VAR
 BEGIN
+
+// if there's no MQTT connection return
+IF mqttData._state = mqttGlobals.MQTT_DISCONNECTED THEN
+    RETURN;
+END_IF;
 
 l_topic := topic;
 
@@ -282,6 +313,11 @@ END_FUNCTION
    **********************************************************************************
 *)
 FUNCTION mqttUNSUBSCRIBE : VOID
+
+TITLE = 'MQTT Unsubscribe Function'
+VERSION : '1.0'
+AUTHOR : Brand
+
 VAR_INPUT
     topic : STRING[50];
 END_VAR
@@ -292,6 +328,11 @@ VAR_TEMP
     fixedHeader : BYTE;
 END_VAR
 BEGIN
+
+// if there's no MQTT connection return
+IF mqttData._state = mqttGlobals.MQTT_DISCONNECTED THEN
+    RETURN;
+END_IF;
 
 l_topic := topic;
 
@@ -331,8 +372,14 @@ END_FUNCTION
    **********************************************************************************
 *)
 FUNCTION mqttPUBLISH : INT
+
+TITLE = 'MQTT Publish Function'
+VERSION : '1.0'
+AUTHOR : Brand
+
 VAR_INPUT
     topic : STRING[127];
+	messageid : INT;
     payload : ANY;
     payloadLength : INT;
     qos: INT := 0; // QoS Level 0,1,2
@@ -362,6 +409,12 @@ BEGIN
 
 // set return value (message ID) to 0
 mqttPublish := 0;
+
+// if there's no MQTT connection return an error code
+IF mqttData._state = mqttGlobals.MQTT_DISCONNECTED THEN
+    mqttPublish := -1;
+    RETURN;
+END_IF;
 
 // Fixed header, byte 1
 // +--------+---+-----+---+---+----------+-----+-----+--------+
@@ -415,7 +468,11 @@ length := mqttWriteString(str := holdstring, pos := length);
 
 // set MessageID if qos level 1 or 2
 IF (qos = mqttGlobals.MQTTQOS1) OR (qos = mqttGlobals.MQTTQOS2) THEN
-    thisMessageID := mqttGetNextMessageID();
+    IF messageid > 0 THEN
+        thisMessageID := messageid;
+    ELSE
+        thisMessageID := mqttGetNextMessageID();
+    END_IF;
     
     // insert message ID
     mqttData.buffer[length] := DWORD_TO_BYTE(SHR(IN := INT_TO_DWORD(thisMessageID), N := 8));
@@ -469,6 +526,11 @@ END_FUNCTION
    **********************************************************************************
 *)
 FUNCTION mqttPUBACK : VOID
+
+TITLE = 'MQTT Publish Acknowledge QoS1 Function'
+VERSION : '1.0'
+AUTHOR : Brand
+
 VAR_INPUT
     packetIdMSB : BYTE;
     packetIdLSB : BYTE;

@@ -5,7 +5,6 @@ TITLE = Connection Parameters FOR TCON
 AUTHOR : SIMATIC
 FAMILY : COMM
 NAME : TCON_PAR
-VERSION : 2.1
 
     STRUCT
         // Typbeschreibung
